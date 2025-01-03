@@ -21,6 +21,31 @@ class PlayerTrait extends EntityTrait {
    * @param previous The previous gamemode of the player.
    */
   public onGamemodeChange?(previous: Gamemode): void;
+
+  /**
+   * Called when the player jumps.
+   */
+  public onJump?(): void;
+
+  /**
+   * Called when the player starts sneaking.
+   */
+  public onStartSneaking?(): void;
+
+  /**
+   * Called when the player stops sneaking.
+   */
+  public onStopSneaking?(): void;
+
+  /**
+   * Called when the player starts sprinting.
+   */
+  public onStartSprinting?(): void;
+
+  /**
+   * Called when the player stops sprinting.
+   */
+  public onStopSprinting?(): void;
 }
 
 export { PlayerTrait };

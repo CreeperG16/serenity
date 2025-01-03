@@ -38,7 +38,7 @@ for (const item of data) {
     maxAmount: meta?.maxAmount,
     tool: tool?.network,
     tier: level,
-    tags: meta?.tags,
+    tags: meta?.tags ?? [],
     block: blockType
   });
 
@@ -68,7 +68,7 @@ for (const [index, item] of creative.entries()) {
   const metadata = item.metadata ?? 0;
   // index - creative.findIndex((index_) => index_.network === item.network);
 
-  const nbt = item.extras?.nbt as CompoundTag;
+  const nbt = item.extras?.nbt as CompoundTag<unknown>;
 
   // Create a new item instance descriptor.
   item.metadata = metadata;

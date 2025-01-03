@@ -230,7 +230,7 @@ class PlayerChunkRenderingTrait extends PlayerTrait {
     }
   }
 
-  public onDespawn(): void {
+  public onRemove(): void {
     // Clear the chunks from the player's view
     this.clear();
   }

@@ -10,6 +10,7 @@ export * from "./enums";
 export * from "./handlers";
 export * from "./container";
 export * from "./events";
-export * from "./forms";
+export * from "./ui";
 export * from "./loot";
 export * from "./resource-packs";
+export * from "./pathfinding";

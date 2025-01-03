@@ -16,6 +16,7 @@ import {
   PermissionLevel,
   SerializedSkin,
   SetPlayerGameTypePacket,
+  ShowProfilePacket,
   TeleportCause,
   TextPacket,
   TextPacketType,
@@ -32,11 +33,13 @@ import {
   EntityDimensionChangeSignal,
   PlayerGamemodeChangeSignal
 } from "../events";
+import { FormParticipant } from "../ui";
 
 import { Entity } from "./entity";
 import { AbilityMap } from "./maps";
 import { type EntityTrait, PlayerCursorTrait, PlayerTrait } from "./traits";
 import { Device } from "./device";
+import { ScreenDisplay } from "./screen-display";
 
 const DefaultPlayerProperties: PlayerProperties = {
   username: "SerenityJS",
@@ -89,6 +92,13 @@ class Player extends Entity {
   public readonly skin: SerializedSkin;
 
   /**
+   * The screen display for the player.
+   * This is used to hide and show elements on the player's screen.
+   * This is also used to send title and subtitle messages to the player.
+   */
+  public readonly onScreenDisplay = new ScreenDisplay(this);
+
+  /**
    * The current input tick of the player
    */
   public inputTick = 0n;
@@ -97,6 +107,11 @@ class Player extends Entity {
    * The permission level of the player
    */
   public permission: PermissionLevel;
+
+  /**
+   * The pending forms of the player
+   */
+  public pendingForms: Map<number, FormParticipant<never>> = new Map();
 
   /**
    * The container that the player is currently viewing.
@@ -189,6 +204,7 @@ class Player extends Entity {
     this.uuid = props.uuid;
     this.device = props.device;
     this.skin = props.skin;
+    this.alwaysShowNameTag = true;
 
     // Get the player's permission level from the permissions map
     this.permission = this.serenity.permissions.get(this.uuid);
@@ -403,25 +419,23 @@ class Player extends Entity {
 
     // Create a new CreativeContentPacket, and map the creative content to the packet
     const content = new CreativeContentPacket();
-    content.items = this.getWorld()
-      .itemPalette.getCreativeContent()
-      .map((item) => {
-        return {
-          network: item.type.network,
-          metadata: item.metadata,
-          stackSize: 1,
-          networkBlockId:
-            item.type.block?.permutations[item.metadata]?.network ?? 0,
-          extras: {
-            canDestroy: [],
-            canPlaceOn: [],
-            nbt: item.nbt
-          }
-        };
-      });
+    content.items = this.world.itemPalette.getCreativeContent().map((item) => {
+      return {
+        network: item.type.network,
+        metadata: item.metadata,
+        stackSize: 1,
+        networkBlockId:
+          item.type.block?.permutations[item.metadata]?.network ?? 0,
+        extras: {
+          canDestroy: [],
+          canPlaceOn: [],
+          nbt: item.nbt
+        }
+      };
+    });
 
     // Serialize the available commands for the player
-    const commands = this.getWorld().commands.serialize();
+    const commands = this.world.commands.serialize();
 
     // Filter the commands by the player's permission level
     commands.commands = commands.commands.filter(
@@ -455,6 +469,23 @@ class Player extends Entity {
   }
 
   /**
+   * Shows the player profile of another player.
+   * @param xuid The xuid of the player to show the profile of; default is this player.
+   */
+  public showProfile(xuid?: Player | string): void {
+    // Create a new ShowProfilePacket
+    const packet = new ShowProfilePacket();
+
+    // Assign the xuid to the packet
+    if (!xuid) packet.xuid = this.xuid;
+    else if (xuid instanceof Player) packet.xuid = xuid.xuid;
+    else packet.xuid = xuid;
+
+    // Send the packet to the player
+    this.send(packet);
+  }
+
+  /**
    * Teleports the player to a specific position.
    * @param position The position to teleport the player to.
    * @param dimension The dimension to teleport the player to.
@@ -479,10 +510,7 @@ class Player extends Entity {
 
       if (dimension.world !== this.dimension.world) {
         // Save the players current data
-        this.getWorld().provider.writePlayer(
-          this.getDataEntry(),
-          this.dimension
-        );
+        this.world.provider.writePlayer(this.getDataEntry(), this.dimension);
 
         // Read the player data from the new world
         const data = dimension.world.provider.readPlayer(this.uuid, dimension);
@@ -619,9 +647,33 @@ class Player extends Entity {
 
     // Check if the player should overwrite the current data
     if (overwrite) {
+      this.metadata.clear();
+      this.flags.clear();
+      this.attributes.clear();
+      this.abilities.clear();
       this.components.clear();
       this.traits.clear();
-      this.abilities.clear();
+    }
+
+    // Add the metadata to the player, if it does not already exist
+    for (const [key, value] of entry.metadata) {
+      if (!this.metadata.has(key)) this.metadata.set(key, value);
+    }
+
+    // Add the flags to the player, if it does not already exist
+    for (const [flag, value] of entry.flags) {
+      if (!this.flags.has(flag)) this.flags.set(flag, value);
+    }
+
+    // Add the attributes to the player, if it does not already exist
+    for (const [attribute, value] of entry.attributes) {
+      if (!this.attributes.has(attribute))
+        this.attributes.set(attribute, value);
+    }
+
+    // Add the abilities to the player, if it does not already exist
+    for (const [ability, value] of entry.abilities) {
+      if (!this.abilities.has(ability)) this.abilities.set(ability, value);
     }
 
     // Add the components to the player, if it does not already exist
@@ -646,27 +698,6 @@ class Player extends Entity {
 
       // Attempt to add the trait to the entity
       this.addTrait(traitType as typeof EntityTrait);
-    }
-
-    // Add the metadata to the player, if it does not already exist
-    for (const [key, value] of entry.metadata) {
-      if (!this.metadata.has(key)) this.metadata.set(key, value);
-    }
-
-    // Add the flags to the player, if it does not already exist
-    for (const [flag, value] of entry.flags) {
-      if (!this.flags.has(flag)) this.flags.set(flag, value);
-    }
-
-    // Add the attributes to the player, if it does not already exist
-    for (const [attribute, value] of entry.attributes) {
-      if (!this.attributes.has(attribute))
-        this.attributes.set(attribute, value);
-    }
-
-    // Add the abilities to the player, if it does not already exist
-    for (const [ability, value] of entry.abilities) {
-      if (!this.abilities.has(ability)) this.abilities.set(ability, value);
     }
   }
 }

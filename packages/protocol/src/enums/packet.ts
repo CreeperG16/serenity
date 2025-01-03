@@ -57,6 +57,8 @@ enum Packet {
   SetPlayerGameType = 0x3e, // 62
   PlayerList = 0x3f, // 63
   LegacyTelemetryEvent = 0x41, // 65
+  ClientBoundMapItemData = 0x43, // 67
+  MapInfoRequest = 0x44, // 68
   RequestChunkRadius = 0x45, // 69
   ChunkRadiusUpdate = 0x46, // 70
   GameRulesChanged = 0x48, // 72
@@ -66,6 +68,7 @@ enum Packet {
   CommandRequest = 0x4d, // 77
   CommandBlockUpdate = 0x4e, // 78
   CommandOutput = 0x4f, // 79
+  UpdateTrade = 0x50, // 80
   ResourcePackDataInfo = 0x52, // 82
   ResourcePackChunkData = 0x53, // 83
   ResourcePackChunkRequest = 0x54, // 84
@@ -80,6 +83,7 @@ enum Packet {
   ModalFormRequest = 0x64, // 100
   ModalFormResponse = 0x65, // 101
   ServerSettingsResponse = 0x67, // 103
+  ShowProfile = 0x68, // 104
   RemoveObjective = 0x6a, // 106
   SetDisplayObjective = 0x6b, // 107
   SetScore = 0x6c, // 108
@@ -105,11 +109,14 @@ enum Packet {
   ItemStackRequest = 0x93, // 147
   ItemStackResponse = 0x94, // 148
   EmoteList = 0x98, // 152
+  DebugInfo = 0x9b, // 155
   PacketViolationWarning = 0x9c, // 156
   AnimateEntity = 0x9e, // 158
   CameraShake = 0x9f, // 159
   PlayerFog = 0xa0, // 160
+  CorrectPlayerMovePrediction = 0xa1, // 161
   ItemComponent = 0xa2, // 162
+  ClientBoundDebugRenderer = 0xa4, // 164
   SyncActorProperty = 0xa5, // 165
   NpcDialogue = 0xa9, // 169
   PlayerStartItemCooldown = 0xb0, // 176
@@ -133,7 +140,8 @@ enum Packet {
   ClientboundCloseForm = 0x1_36, // 310
   ServerboundLoadingScreenPacket = 0x1_38, // 312
   CurrentStructureFeature = 0x1_3a, // 314
-  ServerboundDiagnosticPacket = 0x1_3b // 315
+  ServerboundDiagnosticPacket = 0x1_3b, // 315
+  MovementEffect = 0x1_3e // 318
 }
 
 export { Packet };

@@ -9,18 +9,13 @@ import { EntityIdentifier } from "../../enums";
 import { EntityContainer } from "../container";
 import { Entity } from "../entity";
 import { ItemStack } from "../../item";
-import { ItemStackEntry, JSONLikeObject } from "../../types";
+import { ItemStackEntry, ItemStorage } from "../../types";
+import { Container } from "../../container";
 
 import { EntityTrait } from "./trait";
 
-interface InventoryComponent extends JSONLikeObject {
-  size: number;
-  items: Array<[number, ItemStackEntry]>;
-}
-
 class EntityInventoryTrait extends EntityTrait {
   public static readonly identifier = "inventory";
-
   public static readonly types = [EntityIdentifier.Player];
 
   /**
@@ -29,34 +24,37 @@ class EntityInventoryTrait extends EntityTrait {
   public readonly container: EntityContainer;
 
   /**
-   * The type of container that this trait represents.
+   * The component used to store the inventory items.
    */
-  public readonly containerType: ContainerType = ContainerType.Inventory;
+  public get component(): ItemStorage {
+    return this.entity.getComponent("inventory") as ItemStorage;
+  }
 
   /**
-   * The identifier of the container that this trait represents.
+   * The component used to store the inventory items.
    */
-  public readonly containerId: ContainerId = ContainerId.Inventory;
-
-  /**
-   * The amount of slots in the inventory.
-   */
-  public readonly inventorySize: number = 36;
+  public set component(value: ItemStorage) {
+    this.entity.setComponent<ItemStorage>("inventory", value);
+  }
 
   /**
    * The selected slot in the inventory.
    */
   public selectedSlot: number = 0;
 
+  /**
+   * Creates a new entity inventory trait.
+   * @param entity The entity that this trait will be attached to.
+   */
   public constructor(entity: Entity) {
     super(entity);
 
     // Create a new container
     this.container = new EntityContainer(
       entity,
-      this.containerType,
-      this.containerId,
-      this.inventorySize
+      ContainerType.Inventory,
+      ContainerId.Inventory,
+      36
     );
   }
 
@@ -89,7 +87,7 @@ class EntityInventoryTrait extends EntityTrait {
 
     // Assign the packet properties
     packet.runtimeEntityId = this.entity.runtimeId;
-    packet.containerId = this.containerId;
+    packet.containerId = this.container.identifier;
     packet.selectedSlot = slot;
     packet.slot = slot;
     packet.item = itemDescriptor;
@@ -101,61 +99,66 @@ class EntityInventoryTrait extends EntityTrait {
     this.entity.send(packet);
   }
 
-  public onSpawn(): void {
-    // Check if the entity has an inventory component
-    if (this.entity.components.has("inventory")) {
-      // Get the inventory component from the entity
-      const inventory = this.entity.components.get(
-        "inventory"
-      ) as InventoryComponent;
+  public onContainerUpdate(container: Container): void {
+    // Check if the container is not the inventory container
+    if (container !== this.container) return;
 
-      // Iterate over each item in the inventory
-      for (const item of inventory.items) {
-        // Get the slot and entry from the item
-        const slot = item[0] as number;
-        const entry = item[1] as ItemStackEntry;
+    // Prepare the items array
+    const items: Array<[number, ItemStackEntry]> = [];
 
-        // Create a new item stack
-        const stack = new ItemStack(entry.identifier, {
-          amount: entry.amount,
-          auxillary: entry.auxillary,
-          world: this.entity.getWorld(),
-          entry
-        });
-
-        // Add the item stack to the container
-        this.container.setItem(slot, stack);
-      }
-    }
-
-    // Update the container if the entity is a player
-    if (this.entity.isPlayer()) this.container.update(this.entity);
-  }
-
-  public onDespawn(): void {
-    // Create a new inventory component
-    const inventory: InventoryComponent = {
-      size: this.inventorySize,
-      items: []
-    };
-
-    // Iterate over each item in the container
-    for (let i = 0; i < this.inventorySize; i++) {
+    // Iterate over the container slots
+    for (let i = 0; i < this.container.size; i++) {
       // Get the item stack at the index
-      const item = this.container.getItem(i);
+      const itemStack = this.container.getItem(i);
 
       // Check if the item is null
-      if (item === null) continue;
-
-      // Get the data entry of the item stack
-      const entry = item.getDataEntry();
+      if (!itemStack) continue;
 
       // Push the item stack entry to the inventory items
-      inventory.items.push([i, entry]);
+      items.push([i, itemStack.getDataEntry()]);
     }
 
     // Set the inventory component to the entity
-    this.entity.components.set("inventory", inventory);
+    this.component = { size: this.container.size, items };
+  }
+
+  public onSpawn(): void {
+    // Iterate over each item in the inventory component
+    for (const [slot, entry] of this.component.items) {
+      try {
+        // Create a new item stack
+        const itemStack = new ItemStack(entry.identifier, {
+          amount: entry.amount,
+          auxillary: entry.auxillary,
+          world: this.entity.world,
+          entry
+        });
+
+        // Set the item stack to the equipment slot
+        this.container.setItem(slot, itemStack);
+      } catch {
+        // Log the error
+        this.entity.world.logger.error(
+          `Failed to create ItemStack with ItemType "${entry.identifier}", the type does not exist in the ItemPalette.`
+        );
+      }
+    }
+  }
+
+  public onAdd(): void {
+    // Check if the entity has an inventory component
+    if (this.entity.hasComponent("inventory")) return;
+
+    // Create the item storage component
+    this.entity.setComponent<ItemStorage>("inventory", {
+      size: this.container.size,
+      items: []
+    });
+  }
+
+  public onRemove(): void {
+    // Remove the item storage component
+    this.entity.removeComponent("inventory");
   }
 }
 

@@ -2,25 +2,28 @@ import {
   AbilityIndex,
   ActorFlag,
   BlockPosition,
+  CorrectPlayerMovePredictionPacket,
   Gamemode,
   InputData,
   ItemStackRequestActionMineBlock,
   ItemStackRequestActionType,
+  ItemUseMethod,
   LevelEvent,
   LevelEventPacket,
   Packet,
   PlayerActionType,
   PlayerAuthInputPacket,
   PlayerBlockActionData,
+  PredictionType,
   UpdateBlockFlagsType,
   UpdateBlockLayerType,
-  UpdateBlockPacket
+  UpdateBlockPacket,
+  Vector3f
 } from "@serenityjs/protocol";
 import { Connection } from "@serenityjs/raknet";
 
 import { NetworkHandler } from "../network";
 import { Player } from "../entity";
-import { ItemUseMethod } from "../enums";
 import {
   PlayerBreakBlockSignal,
   PlayerStartUsingItemSignal,
@@ -36,10 +39,27 @@ class PlayerAuthInputHandler extends NetworkHandler {
     const player = this.serenity.getPlayerByConnection(connection);
     if (!player) return connection.disconnect();
 
+    // Update the player's input tick
+    player.inputTick = packet.inputTick;
+
+    // Validate the player's motion
+    if (
+      !this.validatePlayerMotion(player, packet.position, packet.positionDelta)
+    ) {
+      // Create a new CorrectPlayerMovePredictionPacket
+      const rewind = new CorrectPlayerMovePredictionPacket();
+      rewind.prediction = PredictionType.Player;
+      rewind.position = player.position;
+      rewind.velocity = new Vector3f(0, 0, 0);
+      rewind.onGround = player.onGround;
+      rewind.inputTick = packet.inputTick;
+
+      // Send the packet to the player
+      return player.sendImmediate(rewind);
+    }
+
     // Set the player's position
-    player.position.x = packet.position.x;
-    player.position.y = packet.position.y;
-    player.position.z = packet.position.z;
+    player.position.set(packet.position);
 
     // Set the player's rotation
     player.rotation.pitch = packet.rotation.x;
@@ -51,20 +71,14 @@ class PlayerAuthInputHandler extends NetworkHandler {
     player.device.interactionMode = packet.interactionMode;
     player.device.playMode = packet.playMode;
 
-    // Convert the player's position to a block position
-    const position = player.position.floor();
+    // Set the player's velocity
+    player.velocity.x = packet.motion.y;
+    player.velocity.z = packet.motion.x;
 
-    // Get the block permutation below the player
-    // Getting the permutation rather than the block will reduce server load
-    // As getting the block will construct a block instance, the permutation is already loaded
-    const permutation = player.dimension.getPermutation({
-      ...position,
-      y: position.y - 2
-    });
-
-    // Update the player's onGround status & inputTick
-    player.onGround = permutation.type.solid;
-    player.inputTick = packet.inputTick;
+    // Determine if the player is on the ground
+    player.onGround =
+      packet.inputData.hasFlag(InputData.VerticalCollision) &&
+      !packet.inputData.hasFlag(InputData.Jumping);
 
     // TODO: find a better way to handle this
     player.isMoving = true;
@@ -99,6 +113,51 @@ class PlayerAuthInputHandler extends NetworkHandler {
   }
 
   /**
+   * Validates the player's motion
+   * @param player The player to validate the motion for
+   * @param position The new position of the player
+   * @param delta The delta position of the player
+   * @returns True if the player's motion is valid, false otherwise
+   */
+  public validatePlayerMotion(
+    player: Player,
+    position: Vector3f,
+    delta: Vector3f
+  ): boolean {
+    // Check if the movement validation is disabled
+    if (!this.serenity.properties.movementValidation) return true;
+
+    // Check if the player is flying, if so the movement is valid.
+    if (player.abilities.get(AbilityIndex.Flying)) return true;
+
+    // Check if the delta x is greater than the movement threshold
+    if (Math.abs(delta.x) >= this.serenity.properties.movementRewindThreshold)
+      return false;
+
+    // Check if the delta y is greater than the movement threshold
+    if (delta.y >= this.serenity.properties.movementRewindThreshold)
+      return false; // Return false, as the player is moving up
+    // Check if the delta y is less than the movement threshold
+    else if (delta.y <= -this.serenity.properties.movementRewindThreshold) {
+      // Check if the player is falling, if so the movement is valid
+      if (player.isFalling) return true;
+
+      // If the player is not falling, return false
+      return false;
+    }
+
+    // Check if the delta z is greater than the movement threshold
+    if (Math.abs(delta.z) >= this.serenity.properties.movementRewindThreshold)
+      return false;
+
+    // Check if the player has teleported
+    if (player.position.distance(position) >= 4) return false;
+
+    // Return true, as the movement is valid
+    return true;
+  }
+
+  /**
    * Handles actor actions from the player
    * @param player The player that performed the actions
    * @param actions The actions performed by the player
@@ -114,6 +173,17 @@ class PlayerAuthInputHandler extends NetworkHandler {
           // Get the sneaking flag from the player
           const sneaking = player.flags.get(ActorFlag.Sneaking) ?? false;
 
+          // Check if the player is already sneaking
+          if (sneaking === true) {
+            // Signal the player to stop sneaking
+            for (const trait of player.traits.values())
+              trait.onStopSneaking?.();
+          } else {
+            // Signal the player to start sneaking
+            for (const trait of player.traits.values())
+              trait.onStartSneaking?.();
+          }
+
           // Set the sneaking flag based on the action
           player.flags.set(ActorFlag.Sneaking, !sneaking);
           break;
@@ -124,6 +194,17 @@ class PlayerAuthInputHandler extends NetworkHandler {
         case InputData.StopSprinting: {
           // Get the sprinting flag from the player
           const sprinting = player.flags.get(ActorFlag.Sprinting) ?? false;
+
+          // Check if the player is already sprinting
+          if (sprinting === true) {
+            // Signal the player to stop sprinting
+            for (const trait of player.traits.values())
+              trait.onStopSprinting?.();
+          } else {
+            // Signal the player to start sprinting
+            for (const trait of player.traits.values())
+              trait.onStartSprinting?.();
+          }
 
           // Set the sprinting flag based on the action
           player.flags.set(ActorFlag.Sprinting, !sprinting);
@@ -178,6 +259,25 @@ class PlayerAuthInputHandler extends NetworkHandler {
             // Set the flying ability based on the action
             player.abilities.set(AbilityIndex.Flying, !flying);
           }
+          break;
+        }
+
+        case InputData.StartJumping: {
+          // Signal the player to jump
+          for (const trait of player.traits.values()) trait.onJump?.();
+          break;
+        }
+
+        // Handle when a player starts using an item. (Eating, drinking, etc.)
+        case InputData.StartUsingItem: {
+          // Set the item target for the player
+          player.itemTarget = player.getHeldItem();
+
+          // Check if the target item is not null
+          if (player.itemTarget)
+            // Call the item onStartUse trait methods
+            for (const trait of player.itemTarget.traits.values())
+              trait.onStartUse?.(player, { method: ItemUseMethod.UseTool });
           break;
         }
       }
@@ -241,7 +341,7 @@ class PlayerAuthInputHandler extends NetworkHandler {
           const block = dimension.getBlock(action.position);
 
           // Check if the block is air, if so, the client has a ghost block
-          if (block.isAir()) {
+          if (block.isAir) {
             // Get the block permutation from the dimension
             const permutation = block.permutation;
 
@@ -293,7 +393,7 @@ class PlayerAuthInputHandler extends NetworkHandler {
           // Check if the player was holding an item
           if (heldItem) {
             // Set the use method for the trait
-            const method = ItemUseMethod.Break;
+            const method = ItemUseMethod.UseTool;
 
             // Create a new PlayerStartUsingItemSignal
             let canceled = !new PlayerStartUsingItemSignal(
@@ -356,7 +456,7 @@ class PlayerAuthInputHandler extends NetworkHandler {
 
             // Call the item onStopUse trait methods
             for (const trait of player.itemTarget.traits.values())
-              trait.onStopUse?.(player, { method: ItemUseMethod.Break });
+              trait.onStopUse?.(player, { method: ItemUseMethod.UseTool });
 
             // Reset the players item use time
             player.itemTarget = null;
@@ -418,12 +518,12 @@ class PlayerAuthInputHandler extends NetworkHandler {
           const stack = player.itemTarget;
 
           // Set the use method for the trait, predicted durability, and target block
-          const method = ItemUseMethod.Use;
+          const method = ItemUseMethod.UseTool;
           const predictedDurability = request.predictedDurability;
-          const targetBlock = block;
+          const _targetBlock = block;
 
-          // Call the item onUse trait methods
-          stack.use(player, { method, predictedDurability, targetBlock });
+          // Check if the predicted durability will equal the item stack durability
+          stack.use(player, { method, predictedDurability });
 
           // Create a new PlayerUseItemSignal
           new PlayerUseItemSignal(player, stack, method).emit();

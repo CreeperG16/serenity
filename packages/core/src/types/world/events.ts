@@ -30,7 +30,13 @@ import {
   WorldInitializeSignal,
   WorldTickSignal,
   EntityDieSignal,
-  PlayerOpenedContainerSignal
+  PlayerOpenedContainerSignal,
+  PlayerContainerInteractionSignal,
+  PlayerClosedContainerSignal,
+  PlayerInitializedSignal,
+  PlayerUseItemOnBlockSignal,
+  PlayerUseItemOnEntitySignal,
+  BlockPermutationUpdateSignal
 } from "../../events";
 
 interface WorldEventSignals {
@@ -49,6 +55,7 @@ interface WorldEventSignals {
   [WorldEvent.HealthChanged]: [EntityHealthChangedSignal];
   [WorldEvent.EffectAdd]: [EffectAddSignal];
   [WorldEvent.EffectRemove]: [EffectRemoveSignal];
+  [WorldEvent.PlayerInitialized]: [PlayerInitializedSignal];
   [WorldEvent.PlayerJoin]: [PlayerJoinSignal];
   [WorldEvent.PlayerLeave]: [PlayerLeaveSignal];
   [WorldEvent.PlayerChat]: [PlayerChatSignal];
@@ -60,12 +67,17 @@ interface WorldEventSignals {
   [WorldEvent.PlayerStartUsingItem]: [PlayerStartUsingItemSignal];
   [WorldEvent.PlayerStopUsingItem]: [PlayerStopUsingItemSignal];
   [WorldEvent.PlayerUseItem]: [PlayerUseItemSignal];
+  [WorldEvent.PlayerUseItemOnBlock]: [PlayerUseItemOnBlockSignal];
+  [WorldEvent.PlayerUseItemOnEntity]: [PlayerUseItemOnEntitySignal];
   [WorldEvent.PlayerStartEmoting]: [PlayerStartEmotingSignal];
   [WorldEvent.PlayerStopEmoting]: [PlayerStopEmotingSignal];
   [WorldEvent.PlayerInteractWithBlock]: [PlayerInteractWithBlockSignal];
   [WorldEvent.PlayerInteractWithEntity]: [PlayerInteractWithEntitySignal];
   [WorldEvent.PlayerOpenedContainer]: [PlayerOpenedContainerSignal];
+  [WorldEvent.PlayerClosedContainer]: [PlayerClosedContainerSignal];
+  [WorldEvent.PlayerContainerInteraction]: [PlayerContainerInteractionSignal];
   [WorldEvent.BlockUpdate]: [];
+  [WorldEvent.BlockPermutationUpdate]: [BlockPermutationUpdateSignal];
 }
 
 export { WorldEventSignals };

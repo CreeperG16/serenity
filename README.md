@@ -4,7 +4,7 @@
     <img src="https://raw.githubusercontent.com/SerenityJS/serenity/develop/public/serenityjs-banner.png" alt="Logo">
   </a>
   <p align="center">
-    <strong><font size = "5.5">Serenity RC-1 Beta</font></strong>
+    <strong><font size = "5.5">Minecraft Bedrock Edition Server Software</font></strong>
     <br/>
     <br/>
     <a href="https://serenityjs.net"><strong>Explore Documentation »</strong></a>
@@ -19,8 +19,8 @@
     <a href="https://github.com/SerenityJS/serenity/blob/develop/LICENSE">
       <img alt="License" src="https://img.shields.io/github/license/SerenityJS/serenity?style=for-the-badge&label=Liscense&color=hotpink" />
     </a>
-    <a href="https://www.npmjs.com/package/@serenityjs/serenity">
-      <img alt="License" src="https://img.shields.io/npm/v/@serenityjs/serenity?style=for-the-badge&label=NPM&logo=npm&logoColor=white" />
+    <a href="https://www.npmjs.com/package/@serenityjs/core">
+      <img alt="License" src="https://img.shields.io/npm/v/@serenityjs/core?style=for-the-badge&label=NPM&logo=npm&logoColor=white" />
     </a>
   </p>
 </p>

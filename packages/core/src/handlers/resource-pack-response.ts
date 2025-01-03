@@ -2,6 +2,7 @@ import {
   AvailableActorIdentifiersPacket,
   Difficulty,
   DisconnectReason,
+  ItemComponentPacket,
   MINECRAFT_VERSION,
   Packet,
   PlayStatus,
@@ -14,7 +15,7 @@ import {
   StartGamePacket
 } from "@serenityjs/protocol";
 import { Connection } from "@serenityjs/raknet";
-import { CompoundTag, Tag } from "@serenityjs/nbt";
+import { CompoundTag, TagType } from "@serenityjs/nbt";
 
 import { NetworkHandler } from "../network";
 import { ResourcePack } from "../resource-packs";
@@ -388,7 +389,7 @@ class ResourcePackClientResponseHandler extends NetworkHandler {
         packet.worldName = player.dimension.world.identifier;
         packet.premiumWorldTemplateId = "00000000-0000-0000-0000-000000000000";
         packet.isTrial = false;
-        packet.movementAuthority = 1;
+        packet.movementAuthority = 2;
         packet.rewindHistorySize = 0;
         packet.serverAuthoritativeBlockBreaking = true;
         packet.currentTick = player.dimension.world.currentTick;
@@ -416,22 +417,36 @@ class ResourcePackClientResponseHandler extends NetworkHandler {
         packet.blockNetworkIdsAreHashes = true;
         packet.serverControlledSounds = true;
 
+        // Get all the custom item properties
+        const items = new ItemComponentPacket();
+        items.items = world.itemPalette.getAllCustomTypes().map((item) => {
+          return { name: item.identifier, data: item.nbt };
+        });
+
         // Get the available actor identifiers
         const actors = new AvailableActorIdentifiersPacket();
         actors.data = new CompoundTag();
 
-        // Map the entities to the packet
-        const entities = world.entityPalette
-          .getAllTypes()
-          .map((entity) => EntityType.toNbt(entity));
-
         // Create a new list tag for the entities
-        actors.data.createListTag("idlist", Tag.Compound, entities);
+        const list = actors.data.createListTag<CompoundTag<unknown>>({
+          name: "idlist",
+          value: [],
+          listType: TagType.Compound
+        });
+
+        // Push all the entity types to the list
+        for (const entry of world.entityPalette.getAllTypes()) {
+          // Create a new compound tag for the entity
+          const entity = EntityType.toNbt(entry);
+
+          // Push the entity to the list
+          list.value.push(entity);
+        }
 
         const status = new PlayStatusPacket();
         status.status = PlayStatus.PlayerSpawn;
 
-        player.sendImmediate(packet, status, actors);
+        player.sendImmediate(packet, status, actors, items);
       }
     }
   }

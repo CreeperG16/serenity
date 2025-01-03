@@ -16,9 +16,8 @@
   ],
   "footerLastModified": true,
   "out": "./dist",
-  "placeInternalsInOwningModule": true,
+  "placeInternalsInOwningModule": false,
   "plugin": [
-    "@droppedcode/typedoc-plugin-relative-includes",
     "typedoc-material-theme",
     "typedoc-plugin-extras",
     "typedoc-plugin-missing-exports",

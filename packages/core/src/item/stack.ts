@@ -1,7 +1,10 @@
 import {
+  CompletedUsingItemPacket,
+  ItemUseMethod,
   NetworkItemInstanceDescriptor,
   NetworkItemStackDescriptor
 } from "@serenityjs/protocol";
+import { ByteTag, StringTag } from "@serenityjs/nbt";
 
 import { Container } from "../container";
 import { ItemIdentifier } from "../enums";
@@ -9,11 +12,18 @@ import {
   Items,
   ItemStackEntry,
   ItemStackProperties,
+  ItemUseOnBlockOptions,
+  ItemUseOnEntityOptions,
   ItemUseOptions,
   JSONLikeValue
 } from "../types";
 import { Player } from "../entity";
 import { World } from "../world";
+import {
+  PlayerUseItemOnBlockSignal,
+  PlayerUseItemOnEntitySignal,
+  PlayerUseItemSignal
+} from "../events";
 
 import { ItemType } from "./identity";
 import { ItemTrait } from "./traits";
@@ -29,6 +39,11 @@ class ItemStack<T extends keyof Items = keyof Items> {
    * The type of the item stack.
    */
   public readonly type: ItemType<T>;
+
+  /**
+   * The identifier of the item stack.
+   */
+  public readonly identifier: T;
 
   /**
    * The components of the item stack.
@@ -76,6 +91,24 @@ class ItemStack<T extends keyof Items = keyof Items> {
    */
   public auxillary: number;
 
+  /**
+   * The slot of the item stack in the container.
+   */
+  public get slot(): number {
+    return this.container?.storage.indexOf(this) ?? -1;
+  }
+
+  /**
+   * The slot of the item stack in the container.
+   */
+  public set slot(value: number) {
+    // Check if the item is not in a container.
+    if (!this.container) return;
+
+    // Set the item in the container.
+    this.container.swapItems(this.slot, value);
+  }
+
   public constructor(
     identifier: T | ItemIdentifier | ItemType<T>,
     properties?: Partial<ItemStackProperties>
@@ -85,6 +118,9 @@ class ItemStack<T extends keyof Items = keyof Items> {
       identifier instanceof ItemType
         ? identifier
         : (ItemType.get(identifier as T) as ItemType<T>); // TODO: Fix this, fetch from palette
+
+    // Assign the identifier of the item stack
+    this.identifier = this.type.identifier;
 
     // Spread the default properties and the provided properties
     const props = { ...DefaultItemStackProperties, ...properties };
@@ -110,6 +146,9 @@ class ItemStack<T extends keyof Items = keyof Items> {
       // Initialize the item stack
       this.initialize();
     }
+    this.nbt.add(new StringTag({ name: "Name", value: this.identifier }));
+    this.nbt.add(new ByteTag({ name: "Count", value: this.amount }));
+    this.nbt.add(new ByteTag({ name: "Damage", value: this.auxillary }));
   }
 
   /**
@@ -121,6 +160,18 @@ class ItemStack<T extends keyof Items = keyof Items> {
 
     // Register the traits to the itemstack
     for (const trait of traits) if (!this.hasTrait(trait)) this.addTrait(trait);
+
+    // Iterate over the tags of the item type
+    for (const tag of this.type.tags) {
+      // Get the traits for the tag
+      const traits = [...this.world.itemPalette.traits].filter(
+        ([, trait]) => trait.tag === tag
+      );
+
+      // Register the traits to the itemstack
+      for (const [, trait] of traits)
+        if (!this.hasTrait(trait)) this.addTrait(trait);
+    }
   }
 
   /**
@@ -177,7 +228,7 @@ class ItemStack<T extends keyof Items = keyof Items> {
    * @param options The options for the item use.
    * @returns Whether the item use was successful; default is true.
    */
-  public use(player: Player, options: Partial<ItemUseOptions>): boolean {
+  public use(player: Player, options: ItemUseOptions): boolean | ItemUseMethod {
     // Trigger the item onUse trait event
     let canceled = false;
     for (const trait of this.traits.values()) {
@@ -193,24 +244,160 @@ class ItemStack<T extends keyof Items = keyof Items> {
         // As the trait does not implement the method
         if (success === undefined) continue;
 
+        // Check if the result is a number
+        // If so, this indicates a correction to the use method
+        if (typeof success === "number") {
+          // Create a new CompletedUsingItemPacket
+          const packet = new CompletedUsingItemPacket();
+          packet.itemNetworkId = this.type.network;
+          packet.useMethod = success;
+
+          // Send the packet to the player
+          player.send(packet);
+
+          // Attempt to use the item with the corrected method
+          return this.use(player, { ...options, method: success });
+        }
+
         // If the result is false, cancel the break
         canceled = !success;
       } catch (reason) {
         // Log the error to the console
-        player
-          .getWorld()
-          .serenity.logger.error(
-            `Failed to trigger onUse trait event for item "${this.type.identifier}" in dimension "${player.dimension.identifier}"`,
-            reason
-          );
+        player.world.serenity.logger.error(
+          `Failed to trigger onUse trait event for item "${this.type.identifier}" in dimension "${player.dimension.identifier}"`,
+          reason
+        );
 
         // Remove the trait from the item
         this.traits.delete(trait.identifier);
       }
     }
 
+    // Create a new PlayerUseItem signal
+    const signal = new PlayerUseItemSignal(player, this, options.method);
+
     // Return whether the item use was canceled
-    return !canceled;
+    return !canceled && signal.emit();
+  }
+
+  public useOnBlock(
+    player: Player,
+    options: ItemUseOnBlockOptions
+  ): boolean | ItemUseMethod {
+    // Trigger the item onUse trait event
+    let canceled = false;
+    for (const trait of this.traits.values()) {
+      // Set the canceled flag in the options
+      options.canceled = canceled;
+
+      // Attempt to trigger the onUse trait event
+      try {
+        // Check if the start break was successful
+        const success = trait.onUseOnBlock?.(player, options);
+
+        // If the result is undefined, continue
+        // As the trait does not implement the method
+        if (success === undefined) continue;
+
+        // Check if the result is a number
+        // If so, this indicates a correction to the use method
+        if (typeof success === "number") {
+          // Create a new CompletedUsingItemPacket
+          const packet = new CompletedUsingItemPacket();
+          packet.itemNetworkId = this.type.network;
+          packet.useMethod = success;
+
+          // Send the packet to the player
+          player.send(packet);
+
+          // Attempt to use the item on the block with the corrected method
+          return this.useOnBlock(player, { ...options, method: success });
+        }
+
+        // If the result is false, cancel the break
+        canceled = !success;
+      } catch (reason) {
+        // Log the error to the console
+        player.world.serenity.logger.error(
+          `Failed to trigger onUseOnBlock trait event for item "${this.type.identifier}" in dimension "${player.dimension.identifier}"`,
+          reason
+        );
+
+        // Remove the trait from the item
+        this.traits.delete(trait.identifier);
+      }
+    }
+
+    // Create a new PlayerUseItemOnBlock signal
+    const signal = new PlayerUseItemOnBlockSignal(
+      player,
+      this,
+      options.method,
+      options.targetBlock
+    );
+
+    // Return whether the item use was canceled
+    return !canceled && signal.emit();
+  }
+
+  public useOnEntity(
+    player: Player,
+    options: ItemUseOnEntityOptions
+  ): boolean | ItemUseMethod {
+    // Trigger the item onUse trait event
+    let canceled = false;
+    for (const trait of this.traits.values()) {
+      // Set the canceled flag in the options
+      options.canceled = canceled;
+
+      // Attempt to trigger the onUse trait event
+      try {
+        // Check if the start break was successful
+        const success = trait.onUseOnEntity?.(player, options);
+
+        // If the result is undefined, continue
+        // As the trait does not implement the method
+        if (success === undefined) continue;
+
+        // Check if the result is a number
+        // If so, this indicates a correction to the use method
+        if (typeof success === "number") {
+          // Create a new CompletedUsingItemPacket
+          const packet = new CompletedUsingItemPacket();
+          packet.itemNetworkId = this.type.network;
+          packet.useMethod = success;
+
+          // Send the packet to the player
+          player.send(packet);
+
+          // Attempt to use the item on the entity with the corrected method
+          return this.useOnEntity(player, { ...options, method: success });
+        }
+
+        // If the result is false, cancel the break
+        canceled = !success;
+      } catch (reason) {
+        // Log the error to the console
+        player.world.serenity.logger.error(
+          `Failed to trigger onUseOnEntity trait event for item "${this.type.identifier}" in dimension "${player.dimension.identifier}"`,
+          reason
+        );
+
+        // Remove the trait from the item
+        this.traits.delete(trait.identifier);
+      }
+    }
+
+    // Create a new PlayerUseItemOnEntity signal
+    const signal = new PlayerUseItemOnEntitySignal(
+      player,
+      this,
+      options.method,
+      options.targetEntity
+    );
+
+    // Return whether the item use was canceled
+    return !canceled && signal.emit();
   }
 
   /**
@@ -356,9 +543,9 @@ class ItemStack<T extends keyof Items = keyof Items> {
       // Check if the other value exists.
       if (!otherValue) return false;
 
-      // Get the snbt values of the nbt.
-      const snbt = value.valueOf(true) as string;
-      const otherSnbt = otherValue.valueOf(true) as string;
+      // // Get the snbt values of the nbt.
+      const snbt = JSON.stringify(value.toJSON());
+      const otherSnbt = JSON.stringify(otherValue.toJSON());
 
       // Check if the nbt values are equal.
       if (snbt !== otherSnbt) return false;
@@ -507,6 +694,14 @@ class ItemStack<T extends keyof Items = keyof Items> {
 
     // Return the item stack.
     return item;
+  }
+
+  /**
+   * Creates an empty item stack.
+   * @returns The empty item stack.
+   */
+  public static empty(): ItemStack {
+    return new ItemStack(ItemIdentifier.Air, { amount: 0 });
   }
 }
 

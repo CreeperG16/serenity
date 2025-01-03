@@ -45,7 +45,7 @@ const register = (world: World) => {
             const itemStack = new ItemStack(itemIdentifier as ItemIdentifier, {
               amount,
               auxillary,
-              world: target.getWorld()
+              world
             });
 
             // Get the player's inventory
@@ -57,7 +57,7 @@ const register = (world: World) => {
 
           // Send the success message
           return {
-            message: `Successfully gave x${amount} ${itemIdentifier} to ${targets.length} players.`
+            message: `§7Successfully gave §ux${amount} ${itemIdentifier}§7 to §u${targets.length}§7 players.`
           };
         }
       );

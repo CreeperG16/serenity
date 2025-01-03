@@ -1,7 +1,10 @@
 import {
   ActorDamageCause,
+  ActorDataId,
+  ActorDataType,
   ActorFlag,
   ContainerName,
+  DataItem,
   EffectType,
   MoveActorDeltaPacket,
   MoveDeltaFlags,
@@ -21,6 +24,7 @@ import {
   EntityEffectOptions,
   EntityEntry,
   EntityProperties,
+  JSONLikeObject,
   JSONLikeValue
 } from "../types";
 import { Serenity } from "../serenity";
@@ -37,6 +41,7 @@ import {
   PlayerInteractWithEntitySignal
 } from "../events";
 import { ScoreboardIdentity } from "../world/scoreboard";
+import { ItemKeepOnDieTrait } from "../item/traits/keep-on-die";
 
 import { EntityType } from "./identity";
 import {
@@ -44,7 +49,8 @@ import {
   EntityEquipmentTrait,
   EntityHealthTrait,
   EntityInventoryTrait,
-  EntityTrait
+  EntityTrait,
+  PlayerHungerTrait
 } from "./traits";
 import { Player } from "./player";
 import { MetadataMap, ActorFlagMap, AttributeMap } from "./maps";
@@ -61,9 +67,14 @@ class Entity {
   protected readonly serenity: Serenity;
 
   /**
-   * The type of the entity. (Identifier, NetworkId, etc)
+   * The type of the entity.
    */
   public readonly type: EntityType;
+
+  /**
+   * The identifier of the entity.
+   */
+  public readonly identifier: EntityIdentifier;
 
   /**
    * The current runtime id of the entity. (Incremented each time an entity is created)
@@ -145,9 +156,174 @@ class Entity {
   public isMoving = false;
 
   /**
+   * Whether the entity is falling or not.
+   */
+  public isFalling = false;
+
+  /**
    * Whether the entity is on the ground or not.
    */
   public onGround = false;
+
+  /**
+   * The name tag of the entity.
+   */
+  public get nameTag(): string {
+    // Check if the entity has a name metadata
+    if (!this.metadata.has(ActorDataId.Name)) return "";
+
+    // Get the name metadata
+    const item = this.metadata.get<string>(ActorDataId.Name);
+
+    // Return the name metadata
+    return item?.value;
+  }
+
+  /**
+   * The name tag of the entity
+   */
+  public set nameTag(value: string) {
+    // Create a new DataItem for the name metadata
+    const item = new DataItem(ActorDataId.Name, ActorDataType.String, value);
+
+    // Set the name metadata
+    this.metadata.set(ActorDataId.Name, item);
+  }
+
+  /**
+   * Whether the entity name tag is always visible.
+   */
+  public get alwaysShowNameTag(): boolean {
+    // Check if the entity has a name tag visibility metadata
+    if (!this.metadata.has(ActorDataId.NametagAlwaysShow)) return false;
+
+    // Get the name tag visibility metadata
+    const item = this.metadata.get<number>(ActorDataId.NametagAlwaysShow);
+
+    // Return the name tag visibility metadata
+    return item?.value === 1;
+  }
+
+  /**
+   * Whether the entity name tag is always visible.
+   */
+  public set alwaysShowNameTag(value: boolean) {
+    // Create a new DataItem for the name tag visibility metadata
+    const item = new DataItem(
+      ActorDataId.NametagAlwaysShow,
+      ActorDataType.Byte,
+      value ? 1 : 0
+    );
+
+    // Set the name tag visibility metadata
+    this.metadata.set(ActorDataId.NametagAlwaysShow, item);
+  }
+
+  /**
+   * The variant index of the entity.
+   */
+  public get variant(): number {
+    // Check if the entity has a variant metadata
+    if (!this.metadata.has(ActorDataId.Variant)) return 0;
+
+    // Get the variant metadata
+    const item = this.metadata.get<number>(ActorDataId.Variant);
+
+    // Return the variant metadata
+    return item?.value;
+  }
+
+  /**
+   * The variant index of the entity.
+   */
+  public set variant(value: number) {
+    // Create a new DataItem for the variant metadata
+    const item = new DataItem(ActorDataId.Variant, ActorDataType.Int, value);
+
+    // Set the variant metadata
+    this.metadata.set(ActorDataId.Variant, item);
+  }
+
+  /**
+   * The scale of the entity.
+   */
+  public get scale(): number {
+    // Check if the entity has a scale metadata
+    if (!this.metadata.has(ActorDataId.Reserved038)) return 1;
+
+    // Get the scale metadata
+    const item = this.metadata.get<number>(ActorDataId.Reserved038);
+
+    // Return the scale metadata
+    return item?.value;
+  }
+
+  /**
+   * The scale of the entity.
+   */
+  public set scale(value: number) {
+    // Create a new DataItem for the scale metadata
+    const item = new DataItem(
+      ActorDataId.Reserved038,
+      ActorDataType.Float,
+      value
+    );
+
+    // Set the scale metadata
+    this.metadata.set(ActorDataId.Reserved038, item);
+  }
+
+  /**
+   * The height of the entity collision box.
+   */
+  public get hitboxHeight(): number {
+    // Check if the entity has a metadata value for hitbox height
+    if (!this.metadata.has(ActorDataId.Reserved054)) return 0;
+
+    // Get the entity hitbox height
+    return this.metadata.get(ActorDataId.Reserved054).value as number;
+  }
+
+  /**
+   * The height of the entity collision box.
+   */
+  public set hitboxHeight(value: number) {
+    // Create a new DataItem object
+    const data = new DataItem(
+      ActorDataId.Reserved054,
+      ActorDataType.Float,
+      value
+    );
+
+    // Set the entity hitbox height
+    this.metadata.set(ActorDataId.Reserved054, data);
+  }
+
+  /**
+   * The width of the entity collision box.
+   */
+  public get hitboxWidth(): number {
+    // Check if the entity has a metadata value for hitbox width
+    if (!this.metadata.has(ActorDataId.Reserved053)) return 0;
+
+    // Get the entity hitbox width
+    return this.metadata.get(ActorDataId.Reserved053).value as number;
+  }
+
+  /**
+   * The width of the entity collision box.
+   */
+  public set hitboxWidth(value: number) {
+    // Create a new DataItem object
+    const data = new DataItem(
+      ActorDataId.Reserved053,
+      ActorDataType.Float,
+      value
+    );
+
+    // Set the entity hitbox width
+    this.metadata.set(ActorDataId.Reserved053, data);
+  }
 
   /**
    * Creates a new entity within a dimension.
@@ -169,6 +345,9 @@ class Entity {
     // Assign the type of the entity
     if (type instanceof EntityType) this.type = type;
     else this.type = dimension.world.entityPalette.getType(type) as EntityType;
+
+    // Assign the identifier of the entity
+    this.identifier = this.type.identifier;
 
     // Assign the properties to the entity
     // If a provided unique id is not given, generate one
@@ -220,6 +399,13 @@ class Entity {
 
     // Register the traits to the entity
     for (const trait of traits) if (!this.hasTrait(trait)) this.addTrait(trait);
+  }
+
+  /**
+   * The current world the entity is in.
+   */
+  public get world(): World {
+    return this.dimension.world;
   }
 
   /**
@@ -385,8 +571,8 @@ class Entity {
       return this.getTrait(trait.identifier) as InstanceType<T>;
 
     // Check if the trait is in the palette
-    if (!this.getWorld().entityPalette.traits.has(trait.identifier))
-      this.getWorld().logger.warn(
+    if (!this.world.entityPalette.traits.has(trait.identifier))
+      this.world.logger.warn(
         `Trait "§c${trait.identifier}§r" was added to entity "§d${this.type.identifier}§r:§d${this.uniqueId}§r" in dimension "§a${this.dimension.identifier}§r" but does not exist in the palette. This may result in a deserilization error.`
       );
 
@@ -420,18 +606,56 @@ class Entity {
         `Failed to add trait "${trait.identifier}" to entity "${this.type.identifier}:${this.uniqueId}" in dimension "${this.dimension.identifier}"`,
         reason
       );
-
-      // Return null as the trait was not added
-      return null as InstanceType<T>;
     }
+
+    // Return null as the trait was not added
+    return null as InstanceType<T>;
   }
 
   /**
-   * Gets the world the entity is currently in.
-   * @returns The world the entity is in
+   * Whether the entity has the specified component.
+   * @param key The key of the component.
+   * @returns Whether the entity has the component or not.
    */
-  public getWorld(): World {
-    return this.dimension.world;
+  public hasComponent(key: string): boolean {
+    return this.components.has(key);
+  }
+
+  /**
+   * Gets the specified component from the entity.
+   * @param key The key of the component.
+   * @returns The component if it exists, otherwise null.
+   */
+  public getComponent<T extends JSONLikeObject>(key: string): T | null {
+    return this.components.get(key) as T;
+  }
+
+  /**
+   * Removes the specified component from the entity.
+   * @param key The key of the component.
+   */
+  public removeComponent(key: string): void {
+    this.components.delete(key);
+  }
+
+  /**
+   * Adds a component to the entity.
+   * @param key The key of the component.
+   * @param value The value of the component.
+   */
+  public addComponent<T extends JSONLikeObject>(key: string, value: T): void {
+    this.components.set(key, value);
+
+    // TODO: add return type boolean, check if the component already exists before adding
+  }
+
+  /**
+   * Sets the component of the entity.
+   * @param key The key of the component.
+   * @param value The value of the component.
+   */
+  public setComponent<T extends JSONLikeObject>(key: string, value: T): void {
+    this.components.set(key, value);
   }
 
   /**
@@ -507,7 +731,7 @@ class Entity {
       } catch (reason) {
         // Log the error to the console
         this.serenity.logger.error(
-          `Failed to trigger onSpawn trait event for entity "${this.type.identifier}:${this.uniqueId}" in dimension "${this.dimension.identifier}"`,
+          `(EntityTrait::${trait.identifier}) Failed to trigger onSpawn trait event for entity "${this.type.identifier}:${this.uniqueId}" in dimension "${this.dimension.identifier}"`,
           reason
         );
 
@@ -574,15 +798,24 @@ class Entity {
     // Check if the entity has an inventory trait
     if (this.hasTrait(EntityInventoryTrait)) {
       // Get the inventory trait
-      const { container, inventorySize } = this.getTrait(EntityInventoryTrait);
+      const { container } = this.getTrait(EntityInventoryTrait);
 
       // Iterate over the inventory slots
-      for (let slot = 0; slot < inventorySize; slot++) {
+      for (let slot = 0; slot < container.size; slot++) {
         // Get the item from the slot
         const item = container.getItem(slot);
 
         // Check if the item is valid
         if (!item) continue;
+
+        // Check if the item has the keep on die trait
+        if (item.hasTrait(ItemKeepOnDieTrait)) {
+          // Get the keep on die trait
+          const keepOnDie = item.getTrait(ItemKeepOnDieTrait);
+
+          // Check if the item should be kept
+          if (keepOnDie.keep) continue;
+        }
 
         // Spawn the item in the dimension
         this.dimension.spawnItem(item, this.position);
@@ -597,8 +830,17 @@ class Entity {
       // Get the health trait
       const health = this.getTrait(EntityHealthTrait);
 
-      // Set the health to minimum value
-      health.currentValue = health.effectiveMin;
+      // Set the health of the entity to 0
+      health.currentValue = health.minimumValue;
+    }
+
+    // Check if the entity has a hunger trait
+    if (this.hasTrait(PlayerHungerTrait)) {
+      // Get the hunger trait of the entity
+      const hunger = this.getTrait(PlayerHungerTrait);
+
+      // Reset the hunger of the entity
+      hunger.reset();
     }
 
     // Schedule the entity to despawn
@@ -689,18 +931,6 @@ class Entity {
         return null;
       }
 
-      // case ContainerName.Armor: {
-      //   // Check if the entity has an inventory component
-      //   if (!this.hasComponent("minecraft:inventory"))
-      //     throw new Error("The entity does not have an inventory component.");
-
-      //   // Get the inventory component
-      //   const inventory = this.getComponent("minecraft:inventory");
-
-      //   // Return the armor container
-      //   return inventory.container;
-      // }
-
       case ContainerName.Armor: {
         if (!this.hasTrait(EntityEquipmentTrait))
           throw new Error("The player does not have an equipment trait.");
@@ -741,9 +971,6 @@ class Entity {
     this.position.x += this.velocity.x;
     this.position.y += this.velocity.y;
     this.position.z += this.velocity.z;
-
-    // Set the onGround property of the entity
-    this.onGround = false;
 
     // Create a new SetActorMotionPacket
     const packet = new SetActorMotionPacket();
@@ -888,9 +1115,9 @@ class Entity {
 
     // Calculate the velocity of the entity based on the entity's rotation
     const velocity = new Vector3f(
-      (-Math.sin(headYawRad) * Math.cos(pitchRad)) / 3 / 0.5,
-      (-Math.sin(pitchRad) / 2) * 0.75,
-      (Math.cos(headYawRad) * Math.cos(pitchRad)) / 3 / 0.5
+      (-Math.sin(headYawRad) * Math.cos(pitchRad)) / 7 / 0.5,
+      (-Math.sin(pitchRad) / 2) * 0.75 - 0.1,
+      (Math.cos(headYawRad) * Math.cos(pitchRad)) / 7 / 0.5
     );
 
     // Spawn the entity
@@ -963,13 +1190,35 @@ class Entity {
 
     // Create a new command execute state
     const state = new CommandExecutionState(
-      this.getWorld().commands.getAll(),
+      this.world.commands.getAll(),
       command,
       this
     );
 
     // Execute the command state
     return state.execute() as CommandResponse<T>;
+  }
+
+  /**
+   * Executes a command in the dimension asynchronously.
+   * @param command The command to execute.
+   * @returns The response of the command.
+   */
+  public async executeCommandAsync<T = unknown>(
+    command: string
+  ): Promise<CommandResponse<T>> {
+    // Check if the command starts with a slash, remove it if it does not
+    if (command.startsWith("/")) command = command.slice(1);
+
+    // Create a new command execute state
+    const state = new CommandExecutionState(
+      this.world.commands.getAll(),
+      command,
+      this
+    );
+
+    // Execute the command state
+    return (await state.execute()) as Promise<CommandResponse<T>>;
   }
 
   /**
@@ -1030,8 +1279,26 @@ class Entity {
 
     // Check if the entity should overwrite the current data
     if (overwrite) {
+      this.metadata.clear();
+      this.flags.clear();
+      this.attributes.clear();
       this.components.clear();
       this.traits.clear();
+    }
+
+    // Add the metadata to the entity, if it does not already exist
+    for (const [key, value] of entry.metadata) {
+      if (!this.metadata.has(key)) this.metadata.set(key, value);
+    }
+
+    // Add the flags to the entity, if it does not already exist
+    for (const [key, value] of entry.flags) {
+      if (!this.flags.has(key)) this.flags.set(key, value);
+    }
+
+    // Add the attributes to the entity, if it does not already exist
+    for (const [key, value] of entry.attributes) {
+      if (!this.attributes.has(key)) this.attributes.set(key, value);
     }
 
     // Add the components to the entity, if it does not already exist
@@ -1055,21 +1322,6 @@ class Entity {
 
       // Attempt to add the trait to the entity
       this.addTrait(traitType as typeof EntityTrait);
-    }
-
-    // Add the metadata to the entity, if it does not already exist
-    for (const [key, value] of entry.metadata) {
-      if (!this.metadata.has(key)) this.metadata.set(key, value);
-    }
-
-    // Add the flags to the entity, if it does not already exist
-    for (const [key, value] of entry.flags) {
-      if (!this.flags.has(key)) this.flags.set(key, value);
-    }
-
-    // Add the attributes to the entity, if it does not already exist
-    for (const [key, value] of entry.attributes) {
-      if (!this.attributes.has(key)) this.attributes.set(key, value);
     }
   }
 

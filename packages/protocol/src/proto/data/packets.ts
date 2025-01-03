@@ -133,6 +133,14 @@ import { UnlockedRecipesPacket } from "./unlocked-recipes";
 import { RequestPermissionsPacket } from "./request-permissions";
 import { ServerSettingsResponsePacket } from "./server-settings-response";
 import { CommandBlockUpdatePacket } from "./command-block-update";
+import { ShowProfilePacket } from "./show-profile";
+import { DebugInfoPacket } from "./debug-info";
+import { ClientBoundDebugRendererPacket } from "./client-bound-debug-renderer";
+import { CorrectPlayerMovePredictionPacket } from "./correct-player-move-prediction";
+import { MovementEffectPacket } from "./movement-effect";
+import { ClientBoundMapItemDataPacket } from "./client-bound-map-item-data";
+import { MapInfoRequestPacket } from "./map-info-request";
+import { UpdateTradePacket } from "./update-trade";
 
 const Packets = {
   [Packet.Login]: LoginPacket, // 1
@@ -190,6 +198,8 @@ const Packets = {
   [Packet.SetPlayerGameType]: SetPlayerGameTypePacket, // 62
   [Packet.PlayerList]: PlayerListPacket, // 63
   [Packet.LegacyTelemetryEvent]: LegacyTelemetryEventPacket, // 65
+  [Packet.ClientBoundMapItemData]: ClientBoundMapItemDataPacket, // 67
+  [Packet.MapInfoRequest]: MapInfoRequestPacket, // 68
   [Packet.RequestChunkRadius]: RequestChunkRadiusPacket, // 69
   [Packet.ChunkRadiusUpdate]: ChunkRadiusUpdatePacket, // 70
   [Packet.GameRulesChanged]: GameRulesChangedPacket, // 72
@@ -199,6 +209,7 @@ const Packets = {
   [Packet.CommandRequest]: CommandRequestPacket, // 77
   [Packet.CommandBlockUpdate]: CommandBlockUpdatePacket, // 78
   [Packet.CommandOutput]: CommandOutputPacket, // 79
+  [Packet.UpdateTrade]: UpdateTradePacket, // 80
   [Packet.ResourcePackDataInfo]: ResourcePackDataInfoPacket, // 82
   [Packet.ResourcePackChunkData]: ResourcePackChunkDataPacket, // 83
   [Packet.ResourcePackChunkRequest]: ResourcePackChunkRequestPacket, // 84
@@ -213,6 +224,7 @@ const Packets = {
   [Packet.ModalFormRequest]: ModalFormRequestPacket, // 100
   [Packet.ModalFormResponse]: ModalFormResponsePacket, // 101
   [Packet.ServerSettingsResponse]: ServerSettingsResponsePacket, // 103
+  [Packet.ShowProfile]: ShowProfilePacket, // 104
   [Packet.RemoveObjective]: RemoveObjectivePacket, // 106
   [Packet.SetDisplayObjective]: SetDisplayObjectivePacket, // 107
   [Packet.SetScore]: SetScorePacket, // 108
@@ -236,11 +248,14 @@ const Packets = {
   [Packet.ItemStackRequest]: ItemStackRequestPacket, // 147
   [Packet.ItemStackResponse]: ItemStackResponsePacket, // 148
   [Packet.EmoteList]: EmoteListPacket, // 152
+  [Packet.DebugInfo]: DebugInfoPacket, // 155
   [Packet.PacketViolationWarning]: PacketViolationWarningPacket, // 156
   [Packet.AnimateEntity]: AnimateEntityPacket, // 158
   [Packet.CameraShake]: CameraShakePacket, // 159
   [Packet.PlayerFog]: PlayerFogPacket, // 160
+  [Packet.CorrectPlayerMovePrediction]: CorrectPlayerMovePredictionPacket, // 161
   [Packet.ItemComponent]: ItemComponentPacket, // 162
+  [Packet.ClientBoundDebugRenderer]: ClientBoundDebugRendererPacket, // 163
   [Packet.SyncActorProperty]: SyncActorPropertyPacket, // 165
   [Packet.NpcDialogue]: NpcDialoguePacket, // 169
   [Packet.PlayerStartItemCooldown]: PlayerStartItemCooldownPacket, // 176
@@ -264,7 +279,8 @@ const Packets = {
   [Packet.ClientboundCloseForm]: ClientboundCloseFormPacket, // 310
   [Packet.ServerboundLoadingScreenPacket]: ServerboundLoadingScreenPacketPacket, // 312
   [Packet.CurrentStructureFeature]: CurrectStructureFeaturePacket, // 314
-  [Packet.ServerboundDiagnosticPacket]: ServerboundDiagnosticsPacket // 315
+  [Packet.ServerboundDiagnosticPacket]: ServerboundDiagnosticsPacket, // 315
+  [Packet.MovementEffect]: MovementEffectPacket // 318
 };
 
 export { Packets };

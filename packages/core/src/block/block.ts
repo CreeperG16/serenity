@@ -4,9 +4,6 @@ import {
   Gamemode,
   LevelEvent,
   LevelEventPacket,
-  UpdateBlockFlagsType,
-  UpdateBlockLayerType,
-  UpdateBlockPacket,
   Vector3f
 } from "@serenityjs/protocol";
 
@@ -20,65 +17,288 @@ import {
 } from "../types";
 import { Chunk } from "../world/chunk";
 import { ItemStack, ItemType } from "../item";
-import { BlockIdentifier, BlockToolType, ItemIdentifier } from "../enums";
+import {
+  BlockIdentifier,
+  BlockToolType,
+  CardinalDirection,
+  ItemIdentifier
+} from "../enums";
 import { Serenity } from "../serenity";
 import { Player } from "../entity";
 import { PlayerInteractWithBlockSignal } from "../events";
 
-import { BlockTrait } from "./traits";
+import { BlockDirectionTrait, BlockTrait } from "./traits";
 import { NbtMap } from "./maps";
 
 import { BlockPermutation, BlockType } from ".";
 
+/**
+ * Block is a class the represents an instance of a block in a dimension of a world.
+ * The Block instance contains its position, dimension, type, permutation, components, traits, and nbt data.
+ * Blocks can be interacted with, destroyed, and have additional behavior added to them through traits.
+ *
+ * ```ts
+  // Fetching a block from a dimension.
+  const query = dimension.getBlock({ x: 0, y: 0, z: 0 });
+ * ```
+ */
 class Block {
-  protected serenity: Serenity;
+  /**
+   * The serenity instance of the server.
+   */
+  protected readonly serenity: Serenity;
 
+  /**
+   * The dimension the block is in.
+   */
   public readonly dimension: Dimension;
 
+  /**
+   * The position of the block. (x, y, z)
+   */
   public readonly position: BlockPosition;
 
+  /**
+   * The components that are attached to the block.
+   * Components are additional data that is attached to the block and will be saved with the world database.
+   * These are usaully used by traits to store additional data, but can be used by other systems as well.
+   */
   public readonly components = new Map<string, JSONLikeValue>();
 
+  /**
+   * The traits that are attached to the block.
+   * Traits add additional behavior to the block and only the trait identifier will be saved with the world database.
+   * Traits generally use components or nbt to store additional data.
+   */
   public readonly traits = new Map<string, BlockTrait>();
 
+  /**
+   * The nbt data that is attached to the block.
+   * Nbt data is additional data that is attached to the block and will be saved with the world database.
+   * The format of the nbt data is exactly the same as the nbt format of vanilla Minecraft.
+   * This data is used to apply additional metadata to the block. (Custom Name, Chest Open/Closed, etc.)
+   */
   public readonly nbt = new NbtMap(this);
 
-  public permutation: BlockPermutation;
+  /**
+   * The block type of the block.
+   * This property will contain any additional metadata that is global to the block type.
+   */
+  public get type(): BlockType {
+    return this.permutation.type;
+  }
 
-  public constructor(
-    dimension: Dimension,
-    position: BlockPosition,
-    permutation: BlockPermutation,
-    properties?: Partial<BlockProperties>
-  ) {
-    this.serenity = dimension.world.serenity;
-    this.dimension = dimension;
-    this.position = position;
-    this.permutation = permutation;
+  /**
+   * The block type of the block.
+   * This property will contain any additional metadata that is global to the block type.
+   */
+  public set type(type: BlockType) {
+    this.setPermutation(type.getPermutation());
+  }
 
-    if (properties?.entry)
-      this.loadDataEntry(this.dimension.world, properties.entry);
+  /**
+   * The block identifier of the block. (minecraft:stone, minecraft:oak_log, minecraft:air, etc.)
+   */
+  public get identifier(): BlockIdentifier {
+    return this.type.identifier;
+  }
+
+  /**
+   * The block identifier of the block. (minecraft:stone, minecraft:oak_log, minecraft:air, etc.)
+   */
+  public set identifier(identifier: BlockIdentifier) {
+    // Resolve the block type from the block palette.
+    const type = this.world.blockPalette.resolveType(identifier);
+
+    // Set the block type of the block.
+    this.type = type;
+  }
+
+  /**
+   * The current permutation of the block.
+   * The permutation contains the specific state of the block, which determines the block's appearance and behavior.
+   * The permutation is a combination of the block type and the block state.
+   */
+  public get permutation(): BlockPermutation {
+    return this.dimension.getPermutation(this.position);
+  }
+
+  /**
+   * The current permutation of the block.
+   * The permutation contains the specific state of the block, which determines the block's appearance and behavior.
+   * The permutation is a combination of the block type and the block state.
+   */
+  public set permutation(permutation: BlockPermutation) {
+    this.setPermutation(permutation);
   }
 
   /**
    * Whether or not the block is air.
+   * Usaully if the block is air, it is not cached in the dimension.
    */
-  public isAir(): boolean {
+  public get isAir(): boolean {
     return this.permutation.type.air;
   }
 
   /**
    * Whether or not the block is liquid.
    */
-  public isLiquid(): boolean {
+  public get isLiquid(): boolean {
     return this.permutation.type.liquid;
   }
 
   /**
    * Whether or not the block is solid.
+   * Depening on the value, this will determine if entities can pass through the block.
    */
-  public isSolid(): boolean {
+  public get isSolid(): boolean {
     return this.permutation.type.solid;
+  }
+
+  /**
+   * Whether or not the block is loggable.
+   * Depening on the value, this will determine if the block can be logged with a fluid type block.
+   */
+  public get isLoggable(): boolean {
+    return this.type.loggable;
+  }
+
+  /**
+   * Whether or not the block is waterlogged.
+   */
+  public get isWaterlogged(): boolean {
+    // Check if the block can be waterlogged
+    if (!this.isLoggable) return false;
+
+    // Get the permutation of the block
+    const permutation = this.dimension.getPermutation(this.position);
+
+    // Check if the permutation is water
+    return permutation.type.identifier === BlockIdentifier.Water;
+  }
+
+  /**
+   * Whether or not the block is waterlogged.
+   */
+  public set isWaterlogged(value: boolean) {
+    // Check if the block can be waterlogged
+    if (!this.isLoggable) return;
+
+    // Get the permutation of the block
+    const permutation = value
+      ? this.world.blockPalette.resolvePermutation(BlockIdentifier.Water)
+      : this.world.blockPalette.resolvePermutation(BlockIdentifier.Air);
+
+    // Set the block permutation
+    this.dimension.setPermutation(this.position, permutation, 1);
+  }
+
+  /**
+   * Whether or not the block is lava logged.
+   */
+  public get isLavaLogged(): boolean {
+    // Check if the block can be waterlogged
+    if (!this.isLoggable) return false;
+
+    // Get the permutation of the block
+    const permutation = this.dimension.getPermutation(this.position);
+
+    // Check if the permutation is water
+    return permutation.type.identifier === BlockIdentifier.Lava;
+  }
+
+  /**
+   * Whether or not the block is lava logged.
+   */
+  public set isLavaLogged(value: boolean) {
+    // Check if the block can be waterlogged
+    if (!this.isLoggable) return;
+
+    // Get the permutation of the block
+    const permutation = value
+      ? this.world.blockPalette.resolvePermutation(BlockIdentifier.Lava)
+      : this.world.blockPalette.resolvePermutation(BlockIdentifier.Air);
+
+    // Set the block permutation
+    this.dimension.setPermutation(this.position, permutation, 1);
+  }
+
+  /**
+   * The direction the block is facing.
+   */
+  public get direction(): CardinalDirection {
+    // Check if the block has the direction trait
+    if (!this.hasTrait(BlockDirectionTrait)) return CardinalDirection.North;
+
+    // Get the direction trait
+    const trait = this.getTrait(BlockDirectionTrait);
+
+    // Get the direction of the block
+    return trait.getDirection();
+  }
+
+  /**
+   * The direction the block is facing.
+   */
+  public set direction(direction: CardinalDirection) {
+    // Check if the block has the direction trait
+    if (!this.hasTrait(BlockDirectionTrait)) return;
+
+    // Get the direction trait
+    const trait = this.getTrait(BlockDirectionTrait);
+
+    // Set the direction of the block
+    trait.setDirection(direction);
+  }
+
+  public constructor(
+    dimension: Dimension,
+    position: BlockPosition,
+    properties?: Partial<BlockProperties>
+  ) {
+    this.serenity = dimension.world.serenity;
+    this.dimension = dimension;
+    this.position = position;
+
+    if (properties?.entry)
+      this.loadDataEntry(this.dimension.world, properties.entry);
+  }
+
+  /**
+   * Gets the current world the block is in.
+   */
+  public get world(): World {
+    return this.dimension.world;
+  }
+
+  /**
+   * Updates the block and surrounding blocks.
+   * @param surrounding Whether to update the surrounding blocks.
+   * @param source The source of the update.
+   */
+  public update(surrounding = false, source: Block = this): void {
+    // Call the onUpdate method of the block
+    for (const trait of this.traits.values()) {
+      // Attempt to call the onUpdate method of the trait
+      try {
+        // Call the onUpdate method of the trait
+        trait.onUpdate?.(source);
+      } catch (reason) {
+        // Log the error to the console
+        this.serenity.logger.error(
+          `Failed to update trait "${trait.identifier}" for block "${this.type.identifier}:${this.position}" in dimension "${this.dimension.identifier}"`,
+          reason
+        );
+
+        // Remove the trait from the block
+        this.traits.delete(trait.identifier);
+      }
+    }
+
+    // Check if the block is surrounded
+    if (surrounding)
+      // If so, update the surrounding blocks
+      this.getNeighborBlocks().forEach((block) => block.update(false, source));
   }
 
   /**
@@ -94,10 +314,19 @@ class Block {
     return this.dimension.getChunk(cx, cz);
   }
 
+  /**
+   * Gets the current permutation of the block.
+   * @returns
+   */
   public getPermutation(): BlockPermutation {
     return this.permutation;
   }
 
+  /**
+   * Sets the permutation of the block.
+   * @param permutation The permutation to set the block to.
+   * @param entry The block entry to load the block data from.
+   */
   public setPermutation(
     permutation: BlockPermutation,
     entry?: BlockEntry
@@ -105,6 +334,7 @@ class Block {
     // Check if the type of the permutation has changed.
     if (this.permutation.type !== permutation.type) {
       // Clear the components and traits if the type has changed.
+
       this.traits.clear();
       this.components.clear();
     }
@@ -115,24 +345,22 @@ class Block {
       this.dimension.blocks.delete(BlockPosition.hash(this.position));
     }
 
-    // Get the chunk the block is in.
-    const chunk = this.getChunk();
-
     // Set the permutation of the block.
-    chunk.setPermutation(this.position, permutation);
+    this.dimension.setPermutation(this.position, permutation);
+    // this.permutation = permutation;
 
     // Check if the entry is provided.
-    if (entry) this.loadDataEntry(this.getWorld(), entry);
+    if (entry) this.loadDataEntry(this.world, entry);
 
     // Get the traits from the block palette
-    const traits = this.getWorld().blockPalette.getRegistry(
+    const traits = this.world.blockPalette.getRegistry(
       permutation.type.identifier
     );
 
     // Fetch any traits that apply to the base type components
     for (const identifier of permutation.type.components) {
       // Get the trait from the block palette using the identifier
-      const trait = this.getWorld().blockPalette.getTrait(identifier);
+      const trait = this.world.blockPalette.getTrait(identifier);
 
       // Check if the trait exists
       if (trait) traits.push(trait);
@@ -141,53 +369,30 @@ class Block {
     // Fetch any traits that are block state specific
     for (const key of Object.keys(permutation.state)) {
       // Iterate over the trait in the registry.
-      for (const trait of this.getWorld().blockPalette.getAllTraits()) {
-        // Check if the trait identifier matches the key
-        if (trait.identifier === key) {
-          // Add the trait to the traits list
+      for (const trait of this.world.blockPalette.getAllTraits()) {
+        // Check if the trait state key matches the block state key
+        if (trait.state === key)
+          // If so, add the trait to the block traits
           traits.push(trait);
-        }
       }
     }
 
     // Iterate over all the traits and apply them to the block
-    for (const trait of traits) this.addTrait(trait);
-
-    // Create a new UpdateBlockPacket to broadcast the change.
-    const packet = new UpdateBlockPacket();
-
-    // Assign the block position and permutation to the packet.
-    packet.networkBlockId = permutation.network;
-    packet.position = this.position;
-    packet.flags = UpdateBlockFlagsType.Network;
-    packet.layer = UpdateBlockLayerType.Normal;
-
-    // Broadcast the packet to the dimension.
-    this.dimension.broadcast(packet);
-
-    // Update the permutation of the block.
-    this.permutation = permutation;
+    for (const trait of traits) {
+      this.addTrait(trait);
+    }
 
     // Check if the block should be cached.
-    if ((this.components.size > 0 || this.traits.size > 0) && !this.isAir()) {
+    if ((this.components.size > 0 || this.traits.size > 0) && !this.isAir) {
       // Calculate the block hash using the position
       const hash = BlockPosition.hash(this.position);
 
       // Set the block in the cache.
       this.dimension.blocks.set(hash, this);
     }
-  }
 
-  public setType(type: BlockType): void {
-    this.setPermutation(type.getPermutation());
-  }
-
-  public getType(): BlockType {
-    return this.permutation.type;
-  }
-
-  public getWorld() {
-    return this.dimension.world;
+    // Update the block after the permutation change
+    this.update(true);
   }
 
   /**
@@ -230,7 +435,10 @@ class Block {
    * @param key The key of the component to set.
    * @param component The component to set.
    */
-  public setComponent(key: string, component: JSONLikeObject): void {
+  public setComponent<T extends JSONLikeObject>(
+    key: string,
+    component: T
+  ): void {
     this.components.set(key, component);
   }
 
@@ -300,9 +508,9 @@ class Block {
       return this.traits.get(trait.identifier) as InstanceType<T>;
 
     // Check if the trait is in the palette
-    if (!this.getWorld().blockPalette.traits.has(trait.identifier))
-      this.getWorld().logger.warn(
-        `Trait "§c${trait.identifier}§r" was added to block "§d${this.getType().identifier}§r:§d${JSON.stringify(this.position)}§r" in dimension "§a${this.dimension.identifier}§r" but does not exist in the palette. This may result in a deserilization error.`
+    if (!this.world.blockPalette.traits.has(trait.identifier))
+      this.world.logger.warn(
+        `Trait "§c${trait.identifier}§r" was added to block "§d${this.type.identifier}§r:§d${JSON.stringify(this.position)}§r" in dimension "§a${this.dimension.identifier}§r" but does not exist in the palette. This may result in a deserilization error.`
       );
 
     // Attempt to add the trait to the block
@@ -317,23 +525,22 @@ class Block {
 
         // Return the trait that was added
         return trait as InstanceType<T>;
-      } else {
-        // Create a new instance of the trait
-        const instance = new trait(this) as InstanceType<T>;
-
-        // Add the trait to the block
-        this.traits.set(instance.identifier, instance);
-
-        // Call the onAdd method of the trait
-        instance.onAdd?.();
-
-        // Return the trait that was added
-        return instance;
       }
+      // Create a new instance of the trait
+      const instance = new trait(this) as InstanceType<T>;
+
+      // Add the trait to the block
+      this.traits.set(instance.identifier, instance);
+
+      // Call the onAdd method of the trait
+      instance.onAdd?.();
+
+      // Return the trait that was added
+      return instance;
     } catch (reason) {
       // Log the error to the console
       this.serenity.logger.error(
-        `Failed to add trait "${trait.identifier}" to block "${this.getType().identifier}:${JSON.stringify(this.position)}" in dimension "${this.dimension.identifier}"`,
+        `Failed to add trait "${trait.identifier}" to block "${this.type.identifier}:${JSON.stringify(this.position)}" in dimension "${this.dimension.identifier}"`,
         reason
       );
 
@@ -357,11 +564,11 @@ class Block {
    * @returns The tool required to break the block.
    */
   public isToolCompatible(_itemStack: ItemStack): boolean {
-    // Get the block type.
-    const blockType = this.getType();
+    // Get the block permutation properties
+    const properties = this.permutation.properties;
 
     // If the hardness is less than 0, no tool is compatible.
-    if (blockType.hardness < 0) return false;
+    if (properties.hardness < 0) return false;
 
     // Check if the tool type is none.
     if (this.getToolType() === BlockToolType.None) return true;
@@ -375,11 +582,11 @@ class Block {
    * @returns The time it takes to break the block.
    */
   public getBreakTime(itemStack?: ItemStack | null): number {
-    // Get the type of the block.
-    const type = this.getType();
+    // Get the block permutation properties.
+    const properties = this.permutation.properties;
 
     // Get the hardness of the block.
-    let hardness = type.hardness;
+    let hardness = properties.hardness;
 
     if (!itemStack && this.getToolType() === BlockToolType.None) {
       hardness *= 1.5;
@@ -399,16 +606,31 @@ class Block {
    */
   public getItemStack(properties?: Partial<ItemStackProperties>): ItemStack {
     // Get the itemPalette from the world.
-    const palette = this.getWorld().itemPalette;
+    const palette = this.world.itemPalette;
 
     // Get the item type of the block.
-    const type = palette.resolveType(this.getType()) as ItemType;
+    const type = palette.resolveType(this.type) as ItemType;
 
     // Create a new item stack with the type.
     const itemStack = new ItemStack(type, properties);
 
     // Return the item stack.
     return itemStack;
+  }
+
+  /**
+   * Gets all the neighbor blocks around the block.
+   * @returns The neighbor blocks around the block.
+   */
+  public getNeighborBlocks(): Array<Block> {
+    return [
+      this.above(),
+      this.below(),
+      this.north(),
+      this.south(),
+      this.east(),
+      this.west()
+    ];
   }
 
   /**
@@ -534,6 +756,9 @@ class Block {
       if (result === false) return false;
     }
 
+    // Update the block after the interaction
+    this.update(false);
+
     // Return true if the block was interacted with
     return true;
   }
@@ -570,7 +795,7 @@ class Block {
         const { x, y, z } = this.position;
 
         // Iterate over the drops of the block.
-        for (const drop of this.getType().drops) {
+        for (const drop of this.type.drops) {
           // Check if the drop is air, if so we will skip it.
           if (drop.type === BlockIdentifier.Air) continue;
 
@@ -614,8 +839,12 @@ class Block {
       this.dimension.broadcast(packet);
     }
 
+    // Check if the block is waterlogged or lavalogged.
+    if (this.isWaterlogged) this.isWaterlogged = false;
+    if (this.isLavaLogged) this.isLavaLogged = false;
+
     // Get the air block permutation.
-    const air = BlockPermutation.resolve(BlockIdentifier.Air);
+    const air = this.world.blockPalette.resolvePermutation(BlockIdentifier.Air);
 
     // Set the block permutation to air.
     this.setPermutation(air);
@@ -634,7 +863,7 @@ class Block {
 
     // Create the block entry object.
     const entry: BlockEntry = {
-      identifier: this.getType().identifier,
+      identifier: this.type.identifier,
       permutation: this.permutation.network,
       position: [x, y, z],
       traits: [...this.traits.keys()],
@@ -669,7 +898,7 @@ class Block {
       // Check if the trait exists in the palette
       if (!traitType) {
         world.logger.error(
-          `Failed to load trait "${trait}" for block "${this.getType().identifier}:${this.position.x},${this.position.y},${this.position.z}" as it does not exist in the palette`
+          `Failed to load trait "${trait}" for block "${this.type.identifier}:${this.position.x},${this.position.y},${this.position.z}" as it does not exist in the palette`
         );
 
         continue;

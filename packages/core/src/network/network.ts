@@ -5,6 +5,7 @@ import {
   type Connection,
   Frame,
   Priority,
+  RaknetServerProperties,
   Reliability,
   Server
 } from "@serenityjs/raknet";
@@ -17,15 +18,17 @@ import {
   DisconnectReason,
   Framer,
   getPacketId,
+  MINECRAFT_VERSION,
   Packet,
-  Packets
+  Packets,
+  PROTOCOL_VERSION
 } from "@serenityjs/protocol";
 
 import { NetworkBound } from "../enums";
 
 import type { NetworkHandler } from "./handler";
 import type { Serenity } from "../serenity";
-import type { NetworkEvents, ServerProperties } from "../types";
+import type { NetworkEvents } from "../types";
 
 interface ConnectionProperties {
   compression: boolean;
@@ -35,6 +38,18 @@ interface ConnectionProperties {
 const DefaultProperties: ConnectionProperties = {
   compression: false,
   encryption: false
+};
+
+interface NetworkProperties {
+  compressionMethod: CompressionMethod;
+  compressionThreshold: number;
+  packetsPerFrame: number;
+}
+
+const DefaultNetworkProperties: NetworkProperties = {
+  compressionMethod: CompressionMethod.Zlib,
+  compressionThreshold: 256,
+  packetsPerFrame: 64
 };
 
 class Network extends Emitter<NetworkEvents> {
@@ -51,7 +66,7 @@ class Network extends Emitter<NetworkEvents> {
   /**
    * The properties that are being used for the network
    */
-  public readonly properties: ServerProperties;
+  public readonly properties: NetworkProperties;
 
   /**
    * The logger that is being used to log network events
@@ -69,12 +84,56 @@ class Network extends Emitter<NetworkEvents> {
   public readonly handlers = new Set<typeof NetworkHandler>();
 
   /**
+   * The current compression method that is being used for the network
+   */
+  public get compressionMethod(): CompressionMethod {
+    return this.properties.compressionMethod;
+  }
+
+  /**
+   * The current compression method that is being used for the network
+   */
+  public set compressionMethod(method: CompressionMethod) {
+    this.properties.compressionMethod = method;
+  }
+
+  /**
+   * The current compression threshold that is being used for the network
+   */
+  public get compressionThreshold(): number {
+    return this.properties.compressionThreshold;
+  }
+
+  /**
+   * The current compression threshold that is being used for the network
+   */
+  public set compressionThreshold(threshold: number) {
+    this.properties.compressionThreshold = threshold;
+  }
+
+  /**
+   * The current packets per frame that is being used for the network
+   */
+  public get packetsPerFrame(): number {
+    return this.properties.packetsPerFrame;
+  }
+
+  /**
+   * The current packets per frame that is being used for the network
+   */
+  public set packetsPerFrame(packets: number) {
+    this.properties.packetsPerFrame = packets;
+  }
+
+  /**
    * Creates a new network handler for a raknet server
    * @param serenity The serenity instance to handle incoming packets with
    * @param handlers The handlers to register to the network
    */
   public constructor(
     serenity: Serenity,
+    properties?: Partial<NetworkProperties>,
+    raknetProperties?: Partial<RaknetServerProperties>,
     handlers?: Array<typeof NetworkHandler>
   ) {
     super();
@@ -83,15 +142,15 @@ class Network extends Emitter<NetworkEvents> {
     this.serenity = serenity;
 
     // Assign the properties to the network with the default properties
-    this.properties = serenity.properties;
+    this.properties = { ...DefaultNetworkProperties, ...properties };
 
     // Create a new raknet server for the network handler
-    this.raknet = new Server(
-      this.properties.address,
-      this.properties.port,
-      1000,
-      400
-    );
+    this.raknet = new Server({
+      message: "SerenityJS",
+      protocol: PROTOCOL_VERSION,
+      version: MINECRAFT_VERSION,
+      ...raknetProperties
+    });
 
     // Bind the incoming packets to the incoming method
     this.raknet.on("encapsulated", this.onEncapsulated.bind(this));
@@ -258,7 +317,7 @@ class Network extends Emitter<NetworkEvents> {
         if (!packetType) {
           // Log a debug message if no packet was found for the packet id.
           this.logger.debug(
-            `No packet serializer/deserializer found for packet id ${packetId}.`
+            `No packet serializer/deserializer found for packet id ${Packet[packetId] ?? packetId}.`
           );
 
           // Skip the packet if no packet was found for the packet id.
@@ -286,7 +345,7 @@ class Network extends Emitter<NetworkEvents> {
           if (!network || !all) {
             // Log a debug message if the packet was cancelled by an external listener.
             this.logger.debug(
-              `Packet received with id ${packetId} was cancelled by an external listener.`
+              `Packet received with id ${Packet[packetId] ?? packetId} was cancelled by an external listener.`
             );
 
             // Skip the packet if it was cancelled by an external listener.
@@ -333,7 +392,7 @@ class Network extends Emitter<NetworkEvents> {
         } catch (reason) {
           // Log the deserialization error if the packet could not be deserialized.
           this.logger.error(
-            `Failed to deserialize packet with id ${packetId}`,
+            `Failed to deserialize packet with id ${Packet[packetId] ?? packetId}`,
             reason
           );
         }
@@ -401,7 +460,7 @@ class Network extends Emitter<NetworkEvents> {
       if (!network || !all) {
         // Log a debug message if the packet was cancelled by an external listener
         this.logger.debug(
-          `Packet sent with id ${packet.getId()} was cancelled by an external listener.`
+          `Packet sent with id ${Packet[packet.getId()] ?? packet.getId()} was cancelled by an external listener.`
         );
 
         // Skip the packet if it was cancelled by an external listener
@@ -415,7 +474,7 @@ class Network extends Emitter<NetworkEvents> {
       } catch (reason) {
         // Log the serialization error if the packet could not be serialized
         this.logger.error(
-          `Failed to serialize packet with id ${packet.getId()}`,
+          `Failed to serialize packet with id ${Packet[packet.getId()] ?? packet.getId()}`,
           reason
         );
       }
@@ -531,4 +590,4 @@ class Network extends Emitter<NetworkEvents> {
   }
 }
 
-export { Network };
+export { Network, NetworkProperties };

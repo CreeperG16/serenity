@@ -1,13 +1,16 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 import {
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
 import { relative, resolve } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
+import { execSync } from "node:child_process";
 
 import { Logger, LoggerColors } from "@serenityjs/logger";
 import { Serenity, ServerEvent, WorldEvent } from "@serenityjs/core";
@@ -17,15 +20,18 @@ import { PluginPackage } from "./types";
 import { Plugin } from "./plugin";
 import Command from "./commands/command";
 import { PluginsEnum } from "./commands";
+import { PluginType } from "./enums";
 
 interface PipelineProperties {
   path: string;
   commands: boolean;
+  initialize: boolean;
 }
 
 const DefaultPipelineProperties: PipelineProperties = {
   path: "./plugins",
-  commands: true
+  commands: true,
+  initialize: true
 };
 
 class Pipeline {
@@ -94,20 +100,21 @@ class Pipeline {
     serenity.on(ServerEvent.Stop, this.stop.bind(this));
 
     // Check if the plugins command should be registered
-    if (!this.properties.commands) return;
+    if (this.properties.commands) {
+      // Hook into the world initialize event
+      serenity.on(WorldEvent.WorldInitialize, ({ world }) =>
+        Command(world, this)
+      );
+    }
 
-    // Hook into the world initialize event
-    serenity.on(WorldEvent.WorldInitialize, ({ world }) =>
-      Command(world, this)
-    );
+    // Check if the plugins should be initialized
+    if (this.properties.initialize) this.initialize();
   }
 
   /**
    * Initializes the plugins pipeline.
-   * @param complete The callback to call when the pipeline is initialized.
-   * @returns A promise that resolves when the pipeline is initialized.
    */
-  public async initialize(complete: () => void): Promise<void> {
+  public initialize(): void {
     // Check if the plugins directory exists
     if (!existsSync(resolve(this.path)))
       // If not, create the plugins directory
@@ -134,72 +141,108 @@ class Pipeline {
         const buffer = inflateSync(readFileSync(path));
         const stream = new BinaryStream(buffer);
 
-        // Read the length of the module and main entry points
-        let length = stream.readVarInt();
-        const esm = stream.readBuffer(length).toString("utf-8");
+        // Read the plugin type from the stream
+        const type = stream.readByte();
 
-        // Read the length of the main entry point
-        length = stream.readVarInt();
-        const cjs = stream.readBuffer(length).toString("utf-8");
+        // Check if the plugin type is valid
+        if (type === PluginType.Addon) {
+          // Read the module entry point from the stream
+          const index = stream.readRemainingBuffer().toString("utf-8");
 
-        // Write the module or main entry points to temporary files
-        const tempPath = resolve(this.path, `~${bundle.name.slice(0, -7)}`);
-        writeFileSync(tempPath, this.esm ? esm : cjs);
+          // Write the module or main entry points to temporary files
+          const tempPath = resolve(this.path, bundle.name.slice(0, -7));
+          writeFileSync(tempPath, index);
 
-        // Import the plugin module
-        const module = await import(`file://${tempPath}`);
+          // Import the plugin module
+          const module = require(tempPath);
 
-        // Get the plugin class from the module
-        const plugin = module.default as Plugin;
+          // Get the plugin class from the module
+          const plugin = module.default as Plugin;
 
-        // Check if the plugin is an instance of the Plugin class
-        if (!(plugin instanceof Plugin)) {
-          this.logger.warn(
-            `Unable to load plugin from §8${relative(process.cwd(), path)}§r, the plugin is not an instance of the Plugin class.`
-          );
+          // Check if the plugin is an instance of the Plugin class
+          if (!(plugin instanceof Plugin)) {
+            this.logger.warn(
+              `Unable to load plugin from §8${relative(process.cwd(), path)}§r, the plugin is not an instance of the Plugin class.`
+            );
 
-          // Skip the plugin
-          continue;
+            // Skip the plugin
+            continue;
+          }
+
+          // Check if the plugin has already been loaded
+          if (this.plugins.has(plugin.identifier)) {
+            this.logger.warn(
+              `Unable to load plugin §1${plugin.identifier}§r, the plugin is already loaded in the pipeline.`
+            );
+
+            // Skip the plugin
+            continue;
+          }
+
+          // Set the pipeline, serenity, and path for the plugin
+          plugin.pipeline = this;
+          plugin.serenity = this.serenity;
+          plugin.path = path;
+          plugin.isBundled = true;
+
+          // Add the plugin to the plugins map
+          this.plugins.set(plugin.identifier, plugin);
+
+          // Initialize the plugin and bind the events
+          plugin.onInitialize(plugin);
+          this.bindEvents(plugin);
+
+          // Add the plugin to the plugins enum
+          PluginsEnum.options.push(plugin.identifier);
+
+          // Add the temporary path to the set
+          this.tempPaths.add(tempPath);
+        } else if (type === PluginType.Api) {
+          // Read the buffer from the stream
+          const buffer = stream.readRemainingBuffer();
+
+          // Delete the .plugin file
+          unlinkSync(path);
+
+          // Write the buffer to a temporary file
+          const tempPath = resolve(this.path, bundle.name.slice(0, -7));
+
+          // Write the buffer to the temporary file
+          writeFileSync(tempPath, buffer);
+
+          // Extract the tarball to the plugins directory
+          execSync(`tar -xzf ${tempPath} -C ${this.path}`, {
+            stdio: "ignore"
+          });
+
+          // Delete the temporary file
+          unlinkSync(tempPath);
+
+          // Get the plugin name from the tarball
+          const name = bundle.name.slice(0, -7);
+
+          // Rename the extracted "package" directory to the plugin name
+          renameSync(resolve(this.path, "package"), resolve(this.path, name));
+
+          // Install the dependencies for the plugin
+          execSync("npm install", {
+            cwd: resolve(this.path, name),
+            stdio: "ignore"
+          });
         }
-
-        // Check if the plugin has already been loaded
-        if (this.plugins.has(plugin.identifier)) {
-          this.logger.warn(
-            `Unable to load plugin §1${plugin.identifier}§r, the plugin is already loaded in the pipeline.`
-          );
-
-          // Skip the plugin
-          continue;
-        }
-
-        // Set the pipeline, serenity, and path for the plugin
-        plugin.pipeline = this;
-        plugin.serenity = this.serenity;
-        plugin.path = path;
-        plugin.isBundled = true;
-
-        // Add the plugin to the plugins map
-        this.plugins.set(plugin.identifier, plugin);
-
-        // Initialize the plugin
-        plugin.onInitialize(plugin);
-
-        // Add the plugin to the plugins enum
-        PluginsEnum.options.push(plugin.identifier);
-
-        // Add the temporary path to the set
-        this.tempPaths.add(tempPath);
       } catch (reason) {
         // Log the error
-        this.logger.warn(
-          `Failed to load plugin from §8${relative(process.cwd(), resolve(this.path, bundle.name))}§r, skipping the plugin.`,
+        this.logger.error(
+          `Failed to load plugin from "${relative(process.cwd(), resolve(this.path, bundle.name))}", skipping the plugin.`,
           reason
         );
       }
     }
 
     // Filter out all the directories from the entries
-    const directories = entries.filter((dirent) => dirent.isDirectory());
+    const directories = readdirSync(resolve(this.path), {
+      withFileTypes: true
+    }).filter((dirent) => dirent.isDirectory());
 
     // Iterate over all the directories, checking if they are valid plugins
     for (const directory of directories) {
@@ -217,7 +260,8 @@ class Pipeline {
         ) as PluginPackage;
 
         // Get the main entry point for the plugin
-        const main = resolve(path, this.esm ? manifest.module : manifest.main);
+        // const main = resolve(path, this.esm ? manifest.module : manifest.main);
+        const main = resolve(path, manifest.main);
 
         // Check if the provided entry point is valid
         if (!existsSync(resolve(path, main))) {
@@ -230,7 +274,7 @@ class Pipeline {
         }
 
         // Import the plugin module
-        const module = await import(`file://${resolve(path, main)}`);
+        const module = require(resolve(path, main));
 
         // Get the plugin class from the module
         const plugin = module.default as Plugin;
@@ -257,19 +301,17 @@ class Pipeline {
         // Add the plugin to the plugins enum
         PluginsEnum.options.push(plugin.identifier);
 
-        // Initialize the plugin
+        // Initialize the plugin, and bind the events
         plugin.onInitialize(plugin);
+        this.bindEvents(plugin);
       } catch (reason) {
         // Log the error
-        this.logger.warn(
-          `Failed to load plugin from §8${relative(process.cwd(), resolve(this.path, directory.name))}§r, skipping the plugin.`,
+        this.logger.error(
+          `Failed to load plugin from "${relative(process.cwd(), resolve(this.path, directory.name))}", skipping the plugin.`,
           reason
         );
       }
     }
-
-    // Call the complete callback
-    return complete();
   }
 
   /**
@@ -308,12 +350,13 @@ class Pipeline {
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- Dynamic delete is required here
     delete require.cache[require.resolve(path)];
 
+    // Remove the plugin from the serenity instance
     this.serenity.removePath(path);
 
     // Attempt to load the plugin
     try {
       // Import the plugin module
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- Require is used here to import the plugin module
+
       const module = require(path);
 
       // Get the plugin class from the module
@@ -339,6 +382,7 @@ class Pipeline {
 
       // Initialize the plugin
       rPlugin.onInitialize(rPlugin);
+      this.bindEvents(rPlugin);
 
       // Start up the plugin
       rPlugin.onStartUp(rPlugin);
@@ -349,7 +393,7 @@ class Pipeline {
       );
     } catch (reason) {
       // Log the error
-      this.logger.warn(
+      this.logger.error(
         `Failed to reload plugin from §8${relative(process.cwd(), path)}§r, skipping the plugin.`,
         reason
       );
@@ -357,31 +401,105 @@ class Pipeline {
   }
 
   public bundle(plugin: Plugin): void {
-    const inputPath = resolve(plugin.path, "dist");
-
-    // Read the ESM and CJS index files from the input path
-    const esmIndex = readFileSync(resolve(inputPath, "index.mjs"));
-    const cjsIndex = readFileSync(resolve(inputPath, "index.js"));
-
     // Create a new BinaryStream instance
     const stream = new BinaryStream();
 
-    // Write the length of the ESM index file and then write the compressed ESM index file
-    stream.writeVarInt(esmIndex.length);
-    stream.writeBuffer(esmIndex);
+    // Write the plugin type to the stream
+    stream.writeByte(plugin.type);
 
-    // Write the length of the CJS index file and then write the compressed CJS index file
-    stream.writeVarInt(cjsIndex.length);
-    stream.writeBuffer(cjsIndex);
+    if (plugin.type === PluginType.Addon) {
+      // Get the addon path
+      const inputPath = resolve(plugin.path, "dist");
 
-    // Get the buffer from the BinaryStream
-    const buffer = stream.getBuffer();
+      // Read the index file
+      const index = readFileSync(resolve(inputPath, "index.js"));
 
-    // Write the BinaryStream to the output path
-    writeFileSync(
-      resolve(this.path, `${plugin.identifier}.plugin`),
-      deflateSync(buffer)
-    );
+      // Write the module entry point to the stream
+      stream.writeBuffer(index);
+
+      // Write the BinaryStream to the output path
+      writeFileSync(
+        resolve(this.path, `${plugin.identifier}.plugin`),
+        deflateSync(stream.getBuffer())
+      );
+    } else if (plugin.type === PluginType.Api) {
+      // Pack the plugin
+      execSync("npm pack", { cwd: plugin.path, stdio: "ignore" });
+
+      // Get the tarball path
+      const tarball = readdirSync(plugin.path).find((file) =>
+        file.endsWith(".tgz")
+      );
+
+      // Check if the tarball exists
+      if (!tarball) throw new Error("Packed tarball not found.");
+
+      // Read the tarball file
+      const buffer = readFileSync(resolve(plugin.path, tarball));
+
+      // Delete the tarball file
+      unlinkSync(resolve(plugin.path, tarball));
+
+      // Write the buffer to the output path
+      stream.writeBuffer(buffer);
+
+      // Write the buffer to the output path
+      writeFileSync(
+        resolve(this.path, `${plugin.identifier}.plugin`),
+        deflateSync(stream.getBuffer())
+      );
+    }
+  }
+
+  protected bindEvents(plugin: Plugin): void {
+    // Get the prototype of the plugin
+    const prototype = Object.getPrototypeOf(plugin);
+
+    // Get the object keys from the plugin
+    const pluginKeys = Object.getOwnPropertyNames(prototype);
+
+    // Get the world event keys, and slice them in half
+    let eventKeys = Object.keys(WorldEvent);
+    eventKeys = eventKeys.slice(eventKeys.length / 2);
+
+    // Iterate over all the event keys
+    for (const eventKey of eventKeys) {
+      // Get the index of the event key
+      const index = eventKeys.indexOf(eventKey) as WorldEvent;
+
+      // Check if the plugin has any "on" event keys
+      if (pluginKeys.includes("on" + eventKey)) {
+        // Get the value of the event key
+        const value = plugin[("on" + eventKey) as keyof Plugin];
+
+        // Check if the value is a function
+        if (typeof value === "function")
+          // Bind the event to the plugin
+          this.serenity.on(index, value.bind(plugin) as () => void);
+      }
+
+      // Check if the plugin has any "before" event keys
+      if (pluginKeys.includes("before" + eventKey)) {
+        // Get the value of the event key
+        const value = plugin[("before" + eventKey) as keyof Plugin];
+
+        // Check if the value is a function
+        if (typeof value === "function")
+          // Bind the event to the plugin
+          this.serenity.before(index, value.bind(plugin) as () => boolean);
+      }
+
+      // Check if the plugin has any "after" event keys
+      if (pluginKeys.includes("after" + eventKey)) {
+        // Get the value of the event key
+        const value = plugin[("after" + eventKey) as keyof Plugin];
+
+        // Check if the value is a function
+        if (typeof value === "function")
+          // Bind the event to the plugin
+          this.serenity.after(index, value.bind(plugin) as () => void);
+      }
+    }
   }
 }
 

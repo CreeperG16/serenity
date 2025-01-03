@@ -17,34 +17,52 @@ import type { Player } from "./entity";
  */
 class Container {
   /**
-   * The type of the container.
-   */
-  public readonly type: ContainerType;
-
-  /**
-   * The identifier of the container.
-   */
-  public readonly identifier: ContainerId;
-
-  /**
-   * The size of the container.
-   */
-  public readonly size: number;
-
-  /**
-   * The storage of the container.
-   */
-  public readonly storage: Array<ItemStack | null>;
-
-  /**
    * The occupants of the container.
    */
   public readonly occupants = new Set<Player>();
 
   /**
+   * The type of the container.
+   */
+  public type: ContainerType;
+
+  /**
+   * The identifier of the container.
+   */
+  public identifier: ContainerId;
+
+  /**
+   * The size of the container.
+   */
+  public get size(): number {
+    return this.storage.length;
+  }
+
+  /**
+   * The size of the container.
+   */
+  public set size(value: number) {
+    this.storage = Array.from({ length: value }, () => null);
+  }
+
+  /**
+   * The storage of the container.
+   */
+  public storage: Array<ItemStack | null>;
+
+  /**
    * The amount of empty slots in the container.
    */
-  public emptySlotsCount: number;
+  public get emptySlotsCount(): number {
+    return this.storage.filter((item) => item === null).length;
+  }
+
+  /**
+   * Whether the container is full.
+   */
+  public get isFull(): boolean {
+    return this.emptySlotsCount === 0;
+  }
 
   /**
    * Creates a new container.
@@ -61,14 +79,6 @@ class Container {
     this.identifier = identifier;
     this.size = size;
     this.storage = Array.from({ length: size }, () => null);
-    this.emptySlotsCount = size;
-  }
-
-  /**
-   * Calculates the amount of empty slots in the container.
-   */
-  protected calculateEmptySlotCount(): number {
-    return this.storage.filter((item) => item === null).length;
   }
 
   /**
@@ -96,19 +106,16 @@ class Container {
     // Set the container of the item
     item.container = this;
 
-    // Update the empty slots count
-    this.emptySlotsCount = this.calculateEmptySlotCount();
-
     // Update the container for all occupants
     this.update();
   }
 
   /**
-   * Adds an item to the container.
-   * @param item The item to add.
-   * @returns The added item.
+   * Adds an item stack to the container.
+   * @param item The item stack to add.
+   * @returns Whether the item was successfully added into the container.
    */
-  public addItem(item: ItemStack): void {
+  public addItem(item: ItemStack): boolean {
     // Find a slot that has the same item type and isn't full (x64)
     // If there is no slot, find the next empty slot.
     const slot = this.storage.findIndex((slot) => {
@@ -141,12 +148,17 @@ class Container {
 
       // Subtract the amount from the item.
       item.decrement(amount);
+
+      // Return true as the item was successfully added.
+      return true;
     } else {
       // Find the next empty slot.
       const emptySlot = this.storage.indexOf(null);
 
-      // Check if there is an empty slot.
-      if (emptySlot === -1) return;
+      // Check if there is an empty slot, if not return false.
+      if (emptySlot === -1) return false;
+
+      // Check if the item is maxed.
       if (item.amount > item.maxAmount) {
         // Create a full stack item for the empty slot
         const newItem = new ItemStack(item.type, {
@@ -164,6 +176,9 @@ class Container {
 
       // Set the item in the empty slot.
       this.setItem(emptySlot, item);
+
+      // Return true as the item was successfully added.
+      return true;
     }
   }
 
@@ -186,9 +201,6 @@ class Container {
     // Check if the item amount is 0.
     if (item.amount === 0) this.storage[slot] = null;
 
-    // Calculate the amount of empty slots in the container.
-    this.emptySlotsCount = this.calculateEmptySlotCount();
-
     // Return the removed item.
     return item;
   }
@@ -210,9 +222,6 @@ class Container {
 
     // Check if the item amount is 0.
     if (item.amount === 0) this.clearSlot(slot);
-
-    // Calculate the amount of empty slots in the container.
-    this.emptySlotsCount = this.calculateEmptySlotCount();
 
     // Create a new item with the removed amount.
     const newItem = new ItemStack(item.type, { ...item, amount: removed });
@@ -269,9 +278,6 @@ class Container {
   public clearSlot(slot: number): void {
     // Set the slot to null.
     this.storage[slot] = null;
-
-    // Calculate the amount of empty slots in the container.
-    this.emptySlotsCount = this.calculateEmptySlotCount();
 
     // Check if the entity is a player, if so, return.
     if (this.occupants.size === 0) return;

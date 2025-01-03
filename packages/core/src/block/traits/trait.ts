@@ -8,6 +8,12 @@ import { Container } from "../../container";
 
 class BlockTrait extends Trait {
   /**
+   * The block state key that this trait is compatible with by default.
+   * If null, the trait will not be initialized by any state.
+   */
+  public static readonly state: string | null = null;
+
+  /**
    * The block type identifiers that this trait is compatible with by default.
    */
   public static readonly types: Array<BlockIdentifier> = [];
@@ -24,9 +30,6 @@ class BlockTrait extends Trait {
   public constructor(block: Block) {
     super();
     this.block = block;
-
-    // Add the trait to the block.
-    block.addTrait(this);
   }
 
   /**
@@ -41,7 +44,7 @@ class BlockTrait extends Trait {
    * @param clickPosition The position where the affected block was clicked.
    * @returns Whether the block placement was successful; default is true.
    */
-  public onPlace?(player: Player, clickPosition: Vector3f): boolean | void;
+  public onPlace?(player?: Player, clickPosition?: Vector3f): boolean | void;
 
   /**
    * Called when the block is broken in the world.
@@ -81,6 +84,8 @@ class BlockTrait extends Trait {
    * @param container The container that was updated.
    */
   public onContainerUpdate?(container: Container): void;
+
+  public onReplace?(): void;
 }
 
 export { BlockTrait };

@@ -5,12 +5,21 @@ import {
   IPosition,
   TextPacket,
   TextPacketType,
+  UpdateBlockFlagsType,
+  UpdateBlockLayerType,
+  UpdateBlockPacket,
   Vector3f
 } from "@serenityjs/protocol";
 
-import { CommandResponse, DimensionProperties, Items } from "../types";
+import {
+  CommandResponse,
+  DimensionProperties,
+  EntityQueryOptions,
+  Items
+} from "../types";
 import {
   Entity,
+  EntityCollisionTrait,
   EntityGravityTrait,
   EntityInventoryTrait,
   EntityItemStackTrait,
@@ -25,6 +34,7 @@ import { ItemStack } from "../item";
 import { EntityIdentifier } from "../enums";
 import { Serenity } from "../serenity";
 import { CommandExecutionState } from "../commands";
+import { BlockPermutationUpdateSignal } from "../events";
 
 import { World } from "./world";
 import { TerrainGenerator } from "./generator";
@@ -252,7 +262,7 @@ class Dimension {
     for (const block of this.blocks.values()) {
       // Check if there is a player within the simulation distance to tick the block
       const inSimulationRange = playerPositions.some((player) => {
-        return player.distance(block.position) <= this.simulationDistance;
+        return player.distance(block.position) <= this.simulationDistance << 4;
       });
 
       // Tick the block if it is in simulation range
@@ -277,14 +287,6 @@ class Dimension {
   }
 
   /**
-   * Get the world that the dimension belongs to.
-   * @returns The world that the dimension belongs to.
-   */
-  public getWorld(): World {
-    return this.world;
-  }
-
-  /**
    * Gets a chunk from the dimension.
    * @param cx The chunk x coordinate.
    * @param cz The chunk z coordinate.
@@ -303,17 +305,6 @@ class Dimension {
    * @param chunk The chunk to set.
    */
   public setChunk(chunk: Chunk): void {
-    // Create a new ChunkWriteSignal
-    // const signal = new ChunkWriteSignal(chunk, this);
-    // const value = signal.emit();
-
-    // Check if the signal was attempted to be cancelled
-    // if (value === false)
-    //   // Log a warning to the console, as this signal cannot be cancelled
-    //   this.world.logger.warn(
-    //     `Chunk write signal cannot be cancelled, chunk: ${chunk.x}, ${chunk.z}`
-    //   );
-
     // Iterate over all the players in the dimension
     for (const player of this.getPlayers()) {
       // Get the player's chunk rendering trait
@@ -359,7 +350,7 @@ class Dimension {
       const permutation = chunk.getPermutation(blockPosition);
 
       // Create a new block with the dimension, position, and permutation
-      const block = new Block(this, blockPosition, permutation);
+      const block = new Block(this, blockPosition);
 
       // Get the traits from the block palette
       const traits = this.world.blockPalette.getRegistry(
@@ -379,11 +370,10 @@ class Dimension {
       for (const key of Object.keys(permutation.state)) {
         // Iterate over the trait in the registry.
         for (const trait of this.world.blockPalette.getAllTraits()) {
-          // Check if the trait identifier matches the key
-          if (trait.identifier === key) {
-            // Add the trait to the traits list
+          // Check if the trait state key matches the block state key
+          if (trait.state === key)
+            // If so, add the trait to the block traits
             traits.push(trait);
-          }
         }
       }
 
@@ -420,9 +410,9 @@ class Dimension {
    * @param position The position of the block.
    * @returns The block permutation at the specified position.
    */
-  public getPermutation(position: IPosition): BlockPermutation {
+  public getPermutation(position: IPosition, layer = 0): BlockPermutation {
     // Convert the position to a block position
-    const blockPosition = position as BlockPosition;
+    const blockPosition = BlockPosition.from(position);
 
     // Convert the block position to a chunk position
     const cx = blockPosition.x >> 4;
@@ -432,7 +422,69 @@ class Dimension {
     const chunk = this.getChunk(cx, cz);
 
     // Get the permutation from the chunk
-    return chunk.getPermutation({ x: cx, y: blockPosition.y, z: cz });
+    const permutation = chunk.getPermutation(blockPosition, layer);
+
+    // Return the permutation
+    return permutation;
+  }
+
+  /**
+   * Sets the permutation of a block at a given position.
+   * @param position The position of the block.
+   * @param permutation  The permutation to set.
+   * @param layer The layer to set the permutation on.
+   */
+  public setPermutation(
+    position: IPosition,
+    permutation: BlockPermutation,
+    layer = UpdateBlockLayerType.Normal
+  ): void {
+    // Convert the position to a block position
+    const blockPosition = BlockPosition.from(position);
+
+    // Create a new UpdateBlockPacket to broadcast the change.
+    const packet = new UpdateBlockPacket();
+
+    // Assign the block position and permutation to the packet.
+    packet.networkBlockId = permutation.network;
+    packet.position = blockPosition;
+    packet.flags = UpdateBlockFlagsType.Network;
+    packet.layer = layer;
+
+    // Create a new BlockPermutationUpdateSignal
+    const signal = new BlockPermutationUpdateSignal(
+      this,
+      blockPosition,
+      permutation
+    );
+
+    // Emit the signal and check if it is cancelled
+    if (!signal.emit()) {
+      // Get the permutation of the block
+      const permutation = this.getPermutation(blockPosition, layer);
+
+      // Assign the permutation to the block
+      packet.networkBlockId = permutation.network;
+
+      // Broadcast the packet to the dimension.
+      return this.broadcast(packet);
+    }
+
+    // Convert the block position to a chunk position
+    const cx = blockPosition.x >> 4;
+    const cz = blockPosition.z >> 4;
+
+    // Get the chunk of the provided position
+    const chunk = this.getChunk(cx, cz);
+
+    // Set the permutation of the block
+    chunk.setPermutation(blockPosition, permutation, layer);
+
+    // Set the chunk to dirty
+    chunk.dirty = true;
+
+    // Broadcast the packet to the dimension.
+    this.broadcast(packet);
   }
 
   /**
@@ -461,8 +513,37 @@ class Dimension {
    * Gets all the players in the dimension.
    * @returns An array of players.
    */
-  public getPlayers(): Array<Player> {
-    return [...this.entities.values()].filter((entity) => entity.isPlayer());
+  public getPlayers(options?: EntityQueryOptions): Array<Player> {
+    // return [...this.entities.values()].filter((entity) => entity.isPlayer());
+    // Get all the entities in the dimension that are players
+    const players = [...this.entities.values()].filter((entity) =>
+      entity.isPlayer()
+    );
+
+    // Check if there are no options provided
+    if (!options) return players;
+
+    // Get the position, max distance, and min distance from the options
+    const position = options.position ?? { x: 0, y: 0, z: 0 };
+    const maxDistance = options.maxDistance ?? 0;
+    const minDistance = options.minDistance ?? 0;
+
+    // Filter the players based on the options
+    return players.filter((player, index) => {
+      // Check if the count is reached
+      if (options.count && options.count <= index) return false;
+
+      // Check if the player is within the maximum distance
+      if (maxDistance > 0 && player.position.distance(position) > maxDistance)
+        return false;
+
+      // Check if the player is within the minimum distance
+      if (minDistance > 0 && player.position.distance(position) < minDistance)
+        return false;
+
+      // Return the player
+      return true;
+    });
   }
 
   /**
@@ -484,8 +565,31 @@ class Dimension {
    * Gets all the entities in the dimension.
    * @returns An array of entities.
    */
-  public getEntities(): Array<Entity> {
-    return [...this.entities.values()];
+  public getEntities(options?: EntityQueryOptions): Array<Entity> {
+    // Check if there are no options provided
+    if (!options) return [...this.entities.values()];
+
+    // Get the position, max distance, and min distance from the options
+    const position = options.position ?? { x: 0, y: 0, z: 0 };
+    const maxDistance = options.maxDistance ?? 0;
+    const minDistance = options.minDistance ?? 0;
+
+    // Filter the entities based on the options
+    return [...this.entities.values()].filter((entity, index) => {
+      // Check if the count is reached
+      if (options.count && options.count <= index) return false;
+
+      // Check if the entity is within the maximum distance
+      if (maxDistance > 0 && entity.position.distance(position) > maxDistance)
+        return false;
+
+      // Check if the entity is within the minimum distance
+      if (minDistance > 0 && entity.position.distance(position) < minDistance)
+        return false;
+
+      // Return the entity
+      return true;
+    });
   }
 
   /**
@@ -550,10 +654,11 @@ class Dimension {
     entity.addTrait(EntityGravityTrait);
     entity.addTrait(EntityPhysicsTrait);
     entity.addTrait(EntityMovementTrait);
+    entity.addTrait(EntityCollisionTrait);
 
     // Set the entity position
     entity.position.x = position.x;
-    entity.position.y = position.y;
+    entity.position.y = position.y + 1;
     entity.position.z = position.z;
 
     // Spawn the entity
@@ -583,13 +688,14 @@ class Dimension {
     entity.position.z = position.z;
 
     // Create a new item trait, this will register the item to the entity
-    const trait = new EntityItemStackTrait(entity);
+    const trait = entity.addTrait(EntityItemStackTrait);
     trait.itemStack = itemStack;
 
     // Add gravity and physics traits to the entity
     entity.addTrait(EntityGravityTrait);
     entity.addTrait(EntityPhysicsTrait);
     entity.addTrait(EntityMovementTrait);
+    entity.addTrait(EntityCollisionTrait);
 
     // Spawn the item entity
     entity.spawn();
@@ -619,6 +725,28 @@ class Dimension {
   }
 
   /**
+   * Executes a command in the dimension asynchronously.
+   * @param command The command to execute.
+   * @returns The response of the command.
+   */
+  public async executeCommandAsync<T = unknown>(
+    command: string
+  ): Promise<CommandResponse<T>> {
+    // Check if the command starts with a slash, remove it if it does not
+    if (command.startsWith("/")) command = command.slice(1);
+
+    // Create a new command execute state
+    const state = new CommandExecutionState(
+      this.world.commands.getAll(),
+      command,
+      this
+    );
+
+    // Execute the command state
+    return (await state.execute()) as Promise<CommandResponse<T>>;
+  }
+
+  /**
    * Schedule an execution of a function after a specified amount of ticks.
    * @param ticks The amount of ticks to wait before the schedule is complete.
    * @returns The created tick schedule.
@@ -644,6 +772,7 @@ class Dimension {
 
   /**
    * Broadcast packets to all the players in the dimension immediately.
+   * This will bypass the RakNet queue and send the packets immediately.
    * @param packets The packets to broadcast.
    */
   public broadcastImmediate(...packets: Array<DataPacket>): void {

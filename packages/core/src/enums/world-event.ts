@@ -14,6 +14,7 @@ enum WorldEvent {
   EntityHurt,
   EffectAdd,
   EffectRemove,
+  PlayerInitialized,
   PlayerJoin,
   PlayerLeave,
   PlayerChat,
@@ -25,12 +26,17 @@ enum WorldEvent {
   PlayerStartUsingItem,
   PlayerStopUsingItem,
   PlayerUseItem,
+  PlayerUseItemOnBlock,
+  PlayerUseItemOnEntity,
   PlayerStartEmoting,
   PlayerStopEmoting,
   PlayerInteractWithBlock,
   PlayerInteractWithEntity,
   PlayerOpenedContainer,
-  BlockUpdate
+  PlayerClosedContainer,
+  PlayerContainerInteraction,
+  BlockUpdate,
+  BlockPermutationUpdate
 }
 
 export { WorldEvent };

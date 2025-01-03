@@ -23,6 +23,10 @@ class MetadataMap extends Map<ActorDataId, DataItem> {
     this.entity = entity;
   }
 
+  public get<T = unknown>(key: ActorDataId): DataItem<T> {
+    return super.get(key) as DataItem<T>;
+  }
+
   public set(key: ActorDataId, value: DataItem<unknown>): this {
     // Create a new EntityMetadataUpdateSignal
     const signal = new EntityMetadataUpdateSignal(this.entity, key, value);
@@ -74,7 +78,7 @@ class MetadataMap extends Map<ActorDataId, DataItem> {
 
     // Iterate over the flags set on the entity
     for (const [flag, enabled] of this.entity.flags)
-      packet.setFlag(flag, enabled);
+      packet.setActorFlag(flag, enabled);
 
     // Send the packet to the dimension
     this.entity.dimension.broadcast(packet);

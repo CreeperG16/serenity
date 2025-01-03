@@ -1,7 +1,13 @@
+import { ItemUseMethod } from "@serenityjs/protocol";
+
 import { Player } from "../../entity";
 import { ItemIdentifier } from "../../enums";
 import { Trait } from "../../trait";
-import { ItemUseOptions } from "../../types";
+import {
+  ItemUseOnBlockOptions,
+  ItemUseOnEntityOptions,
+  ItemUseOptions
+} from "../../types";
 import { ItemStack } from "../stack";
 
 class ItemTrait<T extends ItemIdentifier> extends Trait {
@@ -9,6 +15,12 @@ class ItemTrait<T extends ItemIdentifier> extends Trait {
    * The item type identifiers that this trait is compatible with by default.
    */
   public static readonly types: Array<ItemIdentifier> = [];
+
+  /**
+   * The item tag that this trait is compatible with by default.
+   * If null, the trait is not compatible with any tag.
+   */
+  public static readonly tag: string | null = null;
 
   /**
    * The item stack that this trait is attached to.
@@ -22,9 +34,6 @@ class ItemTrait<T extends ItemIdentifier> extends Trait {
   public constructor(item: ItemStack<T>) {
     super();
     this.item = item;
-
-    // Register the trait to the item stack
-    item.addTrait(this);
   }
 
   /**
@@ -55,8 +64,34 @@ class ItemTrait<T extends ItemIdentifier> extends Trait {
    */
   public onUse?(
     player: Player,
-    options: Partial<ItemUseOptions>
-  ): boolean | void;
+    options: ItemUseOptions
+  ): boolean | ItemUseMethod | void;
+
+  /**
+   * Called when the item is used on a block by a player.
+   * @param player The player that used the item.
+   * @param options The additional options for the item use.
+   */
+  public onUseOnBlock?(
+    player: Player,
+    options: ItemUseOnBlockOptions
+  ): boolean | ItemUseMethod | void;
+
+  /**
+   * Called when the item is used on an entity by a player.
+   * @param player The player that used the item.
+   * @param options The additional options for the item use.
+   */
+  public onUseOnEntity?(
+    player: Player,
+    options: ItemUseOnEntityOptions
+  ): boolean | ItemUseMethod | void;
+
+  /**
+   * Called when the release action is triggered by a player.
+   * @param player The player that released the item.
+   */
+  public onRelease?(player: Player): void;
 
   /**
    * Called when the container that the item is stored in is opened.

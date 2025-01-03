@@ -1,7 +1,7 @@
 import {
   AbilityIndex,
   ActorDamageCause,
-  ActorEventIds,
+  ActorEvent,
   ActorEventPacket,
   AttributeName,
   Gamemode,
@@ -10,7 +10,7 @@ import {
 
 import { EntityIdentifier, EntityInteractMethod } from "../../../enums";
 import { Player } from "../../player";
-import { EntityHealthChangedSignal, EntityHurtSignal } from "../../../events";
+import { EntityHurtSignal } from "../../../events";
 import { Entity } from "../../entity";
 
 import { EntityAttributeTrait } from "./attribute";
@@ -20,9 +20,6 @@ class EntityHealthTrait extends EntityAttributeTrait {
   public static readonly types = [EntityIdentifier.Player];
 
   public readonly attribute = AttributeName.Health;
-  public readonly effectiveMin = 0;
-  public readonly effectiveMax = 20;
-  public readonly defaultValue = 20;
 
   public applyDamage(
     amount: number,
@@ -38,8 +35,8 @@ class EntityHealthTrait extends EntityAttributeTrait {
     // Create a new ActorEventPacket
     const packet = new ActorEventPacket();
     packet.actorRuntimeId = this.entity.runtimeId;
-    packet.eventId = ActorEventIds.HURT_ANIMATION;
-    packet.eventData = cause ?? ActorDamageCause.None;
+    packet.event = ActorEvent.Hurt;
+    packet.data = cause ?? ActorDamageCause.None;
 
     // Broadcast the packet to all players
     this.entity.dimension.broadcast(packet);
@@ -49,15 +46,14 @@ class EntityHealthTrait extends EntityAttributeTrait {
     if (this.currentValue <= 0) this.entity.kill(damager, cause);
   }
 
-  public set(value: number): void {
-    const signal = new EntityHealthChangedSignal(
-      this.entity,
-      this.currentValue,
-      value
-    );
-
-    if (!signal.emit()) return;
-    super.set(value);
+  public onAdd(): void {
+    // Call the super method
+    super.onAdd({
+      minimumValue: 0,
+      maximumValue: 20,
+      defaultValue: 20,
+      currentValue: 20
+    });
   }
 
   public onInteract(player: Player, method: EntityInteractMethod): void {

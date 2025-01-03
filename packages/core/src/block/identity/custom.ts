@@ -1,4 +1,4 @@
-import { CompoundTag } from "@serenityjs/nbt";
+import { TagType } from "@serenityjs/nbt";
 import { BlockProperty } from "@serenityjs/protocol";
 
 import { BlockTypeProperties } from "../../types";
@@ -29,26 +29,37 @@ class CustomBlockType extends BlockType {
     properties?: Partial<BlockTypeProperties>
   ) {
     super(identifier as BlockIdentifier, properties);
-  }
 
-  public static toNbt(type: CustomBlockType): CompoundTag {
-    // Create a root compound tag for the block type.
-    const root = new CompoundTag();
+    // Create a molang version tag.
+    this.nbt.createIntTag({ name: "molangVersion", value: 0 });
 
     // Create a compound tag for the block data.
-    const vanillaBlockData = root.createCompoundTag("vanilla_block_data");
-    vanillaBlockData.createIntTag("block_id", type.networkId); // The block network ID, this should correspond to a matching item type.
+    const data = this.nbt.createCompoundTag({ name: "vanilla_block_data" });
 
-    // Create a compound tag for creative inventory data.
-    const menuCategoryData = root.createCompoundTag("menu_category");
-    menuCategoryData.createStringTag("category", ItemCategory.Nature); // TODO: Add a property for the creative inventory category.
+    // Add the block ID to the block data.
+    data.createIntTag({ name: "block_id", value: this.networkId });
+
+    // Create a compound tag for the menu category.
+    const menuCategory = this.nbt.createCompoundTag({ name: "menu_category" });
     // menuCategoryData.createStringTag("group", ItemGroup.); // The creative inventory group.
 
-    // Create a compound tag for the Molang data.
-    root.createIntTag("molangVersion", 0); // The version of the Molang data, not sure what this indicates on the client end.
+    // Add the category to the menu category.
+    menuCategory.createStringTag({
+      name: "category",
+      value: ItemCategory.Nature
+    });
 
-    // Return the root compound tag.
-    return root;
+    // Create a compound tag for the components.
+    this.nbt.createCompoundTag({ name: "components" });
+
+    // Create a list tag for the properties.
+    this.nbt.createListTag({ name: "properties", listType: TagType.Compound });
+
+    // Create a list tag for the permutations.
+    this.nbt.createListTag({
+      name: "permutations",
+      listType: TagType.Compound
+    });
   }
 
   /**
@@ -57,7 +68,7 @@ class CustomBlockType extends BlockType {
    * @returns The block property.
    */
   public static toBlockProperty(type: CustomBlockType): BlockProperty {
-    return new BlockProperty(type.identifier, CustomBlockType.toNbt(type));
+    return new BlockProperty(type.identifier, type.nbt);
   }
 }
 

@@ -1,31 +1,52 @@
 import {
   ActorDataId,
-  ActorDataType,
   ActorFlag,
-  DataItem,
-  Gamemode
+  Gamemode,
+  Vector3f
 } from "@serenityjs/protocol";
 
 import { EntityIdentifier } from "../../enums";
+import { Entity } from "../entity";
 
 import { EntityTrait } from "./trait";
 
-class EntityCollision extends EntityTrait {
+class EntityCollisionTrait extends EntityTrait {
   public static readonly identifier = "collision";
-
   public static readonly types = [EntityIdentifier.Player];
 
   /**
    * The height of the entity collision box.
    */
-  public height: number = 1.7;
+  public get height(): number {
+    // Get the entity collision height
+    return this.entity.hitboxHeight;
+  }
+
+  /**
+   * The height of the entity collision box.
+   */
+  public set height(value: number) {
+    // Set the entity collision height
+    this.entity.hitboxHeight = value;
+  }
 
   /**
    * The width of the entity collision box.
    */
-  public width: number = 0.6;
+  public get width(): number {
+    // Get the entity collision width
+    return this.entity.hitboxWidth;
+  }
 
-  public onSpawn(): void {
+  /**
+   * The width of the entity collision box.
+   */
+  public set width(value: number) {
+    // Set the entity collision width
+    this.entity.hitboxWidth = value;
+  }
+
+  public onAdd(): void {
     // Check if the entity has a metadata flag value for gravity
     if (!this.entity.flags.has(ActorFlag.HasCollision)) {
       // Set the entity flag for gravity
@@ -34,15 +55,30 @@ class EntityCollision extends EntityTrait {
 
     // Check if the entity has a metadata value for collision height
     if (!this.entity.metadata.has(ActorDataId.Reserved054)) {
+      // Check if the entity is an item
+      if (this.entity.isItem()) this.height = 0.25;
       // Set the default height value
-      this.setHeight(this.height);
+      else this.height = 1.75;
     }
 
     // Check if the entity has a metadata value for collision width
     if (!this.entity.metadata.has(ActorDataId.Reserved053)) {
+      // Check if the entity is an item
+      if (this.entity.isItem()) this.width = 0.25;
       // Set the default width value
-      this.setWidth(this.width);
+      else this.width = 0.6;
     }
+  }
+
+  public onRemove(): void {
+    // Remove the entity flag for gravity
+    this.entity.flags.delete(ActorFlag.HasCollision);
+
+    // Remove the entity collision height
+    this.entity.metadata.delete(ActorDataId.Reserved054);
+
+    // Remove the entity collision width
+    this.entity.metadata.delete(ActorDataId.Reserved053);
   }
 
   public onGamemodeChange(): void {
@@ -56,43 +92,77 @@ class EntityCollision extends EntityTrait {
     else this.entity.flags.set(ActorFlag.HasCollision, true);
   }
 
-  /**
-   * Sets the height of the entity collision box.
-   * @param height The height of the entity collision box.
-   */
-  public setHeight(height: number): void {
-    // Create a new DataItem object
-    const data = new DataItem(
-      ActorDataId.Reserved054,
-      ActorDataType.Float,
-      height
-    );
+  public onTick(): void {
+    // Check if the entity is alive
+    if (!this.entity.isAlive) return;
 
-    // Set the entity collision height
-    this.entity.metadata.set(ActorDataId.Reserved054, data);
+    // Check if the entity is an item
+    if (this.entity.isItem()) return;
 
-    // Update the height value
-    this.height = height;
+    // Get the entities around the entity
+    const entities = this.entity.dimension.getEntities({
+      position: this.entity.position,
+      minDistance: 0,
+      maxDistance: 1
+    });
+
+    // Check if there are no entities around the entity
+    if (entities.length === 0) return;
+
+    // Check if the entity is colliding with another entity
+    entities.forEach((entity) => {
+      // Check if the entity is the same
+      if (entity === this.entity) return;
+
+      // Check if the entity is an item or a player
+      if (entity.isItem() || entity.isPlayer()) return;
+
+      // Check if the entity is colliding with another entity
+      if (this.isCollidingWith(entity)) {
+        // Push the target entity into direction the entity is facing;
+
+        const { headYaw, pitch } = this.entity.rotation;
+
+        // Normalize the pitch & headYaw, so the entity will be spawned in the correct direction
+        const headYawRad = (headYaw * Math.PI) / 180;
+        const pitchRad = (pitch * Math.PI) / 180;
+
+        // Reduce the strength of the velocity
+        const x = (-Math.sin(headYawRad) * Math.cos(pitchRad)) / 5;
+        const z = (Math.cos(headYawRad) * Math.cos(pitchRad)) / 5;
+
+        // Create a new motion vector
+        const motion = new Vector3f(x, 0, z);
+
+        // Set the entity to be moving
+        entity.isMoving = true;
+
+        // Add the motion to the entity
+        entity.addMotion(motion);
+      }
+    });
   }
 
   /**
-   * Sets the width of the entity collision box.
-   * @param width The width of the entity collision box.
+   * Checks if the entity is colliding with another entity.
+   * @param other The entity to check collision with.
+   * @returns True if the entities are colliding, false otherwise.
    */
-  public setWidth(width: number): void {
-    // Create a new DataItem object
-    const data = new DataItem(
-      ActorDataId.Reserved053,
-      ActorDataType.Float,
-      width
-    );
+  public isCollidingWith(other: Entity): boolean {
+    // Get the position of the entity
+    const pos = this.entity.position;
 
-    // Set the entity collision width
-    this.entity.metadata.set(ActorDataId.Reserved053, data);
+    // Get the position of the other entity
+    const otherPos = other.position;
 
-    // Update the width value
-    this.width = width;
+    // Check if the x positions are colliding
+    const x = pos.x - this.width / 2 < otherPos.x + other.hitboxWidth / 2;
+    const y = pos.y - this.height < otherPos.y + other.hitboxHeight;
+    const z = pos.z - this.width / 2 < otherPos.z + other.hitboxWidth / 2;
+
+    // Check if the entities are colliding
+    return x && y && z;
   }
 }
 
-export { EntityCollision };
+export { EntityCollisionTrait };

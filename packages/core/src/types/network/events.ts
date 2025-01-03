@@ -130,7 +130,15 @@ import type {
   UnlockedRecipesPacket,
   RequestPermissionsPacket,
   ServerSettingsResponsePacket,
-  CommandBlockUpdatePacket
+  CommandBlockUpdatePacket,
+  ShowProfilePacket,
+  DebugInfoPacket,
+  ClientBoundDebugRendererPacket,
+  CorrectPlayerMovePredictionPacket,
+  MovementEffectPacket,
+  ClientBoundMapItemDataPacket,
+  MapInfoRequestPacket,
+  UpdateTradePacket
 } from "@serenityjs/protocol";
 import type { NetworkPacketEvent } from "./packet-event";
 
@@ -248,6 +256,7 @@ interface NetworkEvents {
   [Packet.ServerSettingsResponse]: [
     NetworkPacketEvent<ServerSettingsResponsePacket>
   ];
+  [Packet.ShowProfile]: [NetworkPacketEvent<ShowProfilePacket>];
   [Packet.RemoveObjective]: [NetworkPacketEvent<RemoveObjectivePacket>];
   [Packet.SetDisplayObjective]: [NetworkPacketEvent<SetDisplayObjectivePacket>];
   [Packet.SetScore]: [NetworkPacketEvent<SetScorePacket>];
@@ -284,11 +293,23 @@ interface NetworkEvents {
   [Packet.ItemStackRequest]: [NetworkPacketEvent<ItemStackRequestPacket>];
   [Packet.ItemStackResponse]: [NetworkPacketEvent<ItemStackResponsePacket>];
   [Packet.EmoteList]: [NetworkPacketEvent<EmoteListPacket>];
+  [Packet.DebugInfo]: [NetworkPacketEvent<DebugInfoPacket>];
   [Packet.PacketViolationWarning]: [
     NetworkPacketEvent<PacketViolationWarningPacket>
   ];
   [Packet.AnimateEntity]: [NetworkPacketEvent<AnimateEntityPacket>];
+  [Packet.CorrectPlayerMovePrediction]: [
+    NetworkPacketEvent<CorrectPlayerMovePredictionPacket>
+  ];
+  [Packet.ClientBoundMapItemData]: [
+    NetworkPacketEvent<ClientBoundMapItemDataPacket>
+  ];
+  [Packet.MapInfoRequest]: [NetworkPacketEvent<MapInfoRequestPacket>];
   [Packet.ItemComponent]: [NetworkPacketEvent<ItemComponentPacket>];
+  [Packet.ClientBoundDebugRenderer]: [
+    NetworkPacketEvent<ClientBoundDebugRendererPacket>
+  ];
+  [Packet.UpdateTrade]: [NetworkPacketEvent<UpdateTradePacket>];
   [Packet.NpcDialogue]: [NetworkPacketEvent<NpcDialoguePacket>];
   [Packet.ScriptMessage]: [NetworkPacketEvent<ScriptMessagePacket>];
   [Packet.RequestPermissions]: [NetworkPacketEvent<RequestPermissionsPacket>];
@@ -321,6 +342,7 @@ interface NetworkEvents {
   [Packet.ServerboundDiagnosticPacket]: [
     NetworkPacketEvent<ServerboundDiagnosticsPacket>
   ];
+  [Packet.MovementEffect]: [NetworkPacketEvent<MovementEffectPacket>];
 }
 
 export { NetworkEvents };

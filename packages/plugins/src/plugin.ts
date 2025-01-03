@@ -2,15 +2,46 @@ import { Serenity } from "@serenityjs/core";
 import { Logger, LoggerColors } from "@serenityjs/logger";
 
 import { Pipeline } from "./pipeline";
+import { PluginType } from "./enums";
+import { PluginEvents } from "./types";
 
-interface PluginProperties {
+interface PluginProperties extends Partial<PluginEvents> {
   logger: Logger;
-  onInitialize: (plugin: Plugin) => void;
-  onStartUp: (plugin: Plugin) => void;
-  onShutDown: (plugin: Plugin) => void;
+  type: PluginType;
 }
 
-class Plugin {
+/**
+ * # Introduction
+ * Plugins are the fundamental building blocks of SerenityJS.
+ * They are used to add additional functionality to the server, which allows total control over the server.
+ *
+ * There are 2 types of plugins that are defined in the `PluginType` enum: `Addon` & `Api`
+ *
+ * Addon plugins add additional functionality to the server, without an exposed API. This means external plugins cannot directly interact with the plugins API.
+ * Api plugins add additional functionality to the server, with an exposed API for other plugins to use. This means external plugins can directly interact with the plugins API.
+ *
+ * ## Class Extending Plugin
+ * ```ts
+ * import { Plugin, PluginType, PluginEvents } from "@serenityjs/plugins";
+ *
+ * class SamplePlugin extends Plugin {
+ *   public readonly type = PluginType.Addon;
+ *
+ *   public constructor() {
+ *     super("sample-plugin", "1.0.0");
+ *   }
+ *
+ *   public onInitialize(): void {}
+ *
+ *   public onStartUp(): void {}
+ *
+ *   public onShutDown(): void {}
+ * }
+ *
+ * export default new SamplePlugin();
+ * ```
+ */
+class Plugin implements PluginProperties {
   /**
    * The identifier of the plugin.
    */
@@ -25,6 +56,11 @@ class Plugin {
    * The logger for the plugin.
    */
   public readonly logger: Logger;
+
+  /**
+   * The type of the plugin.
+   */
+  public readonly type: PluginType;
 
   /**
    * The path to the plugin.
@@ -67,8 +103,11 @@ class Plugin {
 
     // Set the logger for the plugin
     this.logger =
-      properties?.logger ||
+      properties?.logger ??
       new Logger(`${identifier}@${version}`, LoggerColors.Blue);
+
+    // Set the type of the plugin
+    this.type = properties?.type ?? PluginType.Addon;
 
     // Set the on initialize, start up, and shut down properties
     if (properties?.onInitialize) this.onInitialize = properties.onInitialize;
@@ -80,7 +119,7 @@ class Plugin {
    * Called when the plugin is initialized.
    * @param plugin The plugin instance that was initialized. (this)
    */
-  public onInitialize(_plugin: this): void {
+  public onInitialize(_plugin: Plugin): void {
     // Override this method in your plugin
   }
 
@@ -88,7 +127,7 @@ class Plugin {
    * Called when the plugin is started up.
    * @param plugin The plugin instance that was started up. (this)
    */
-  public onStartUp(_plugin: this): void {
+  public onStartUp(_plugin: Plugin): void {
     // Override this method in your plugin
   }
 
@@ -96,7 +135,7 @@ class Plugin {
    * Called when the plugin is shut down.
    * @param plugin The plugin instance that was shut down. (this)
    */
-  public onShutDown(_plugin: this): void {
+  public onShutDown(_plugin: Plugin): void {
     // Override this method in your plugin
   }
 }
