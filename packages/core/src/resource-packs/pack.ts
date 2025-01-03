@@ -5,6 +5,13 @@ import { PackType } from "@serenityjs/protocol";
 import { ResourceManifest } from "../types";
 
 import { Zip } from "./zipfile";
+import { readdirSync, statSync } from "fs";
+import { join } from "path";
+
+interface ContentEntry {
+  path: string;
+  key?: string;
+}
 
 class ResourcePack {
   // TODO: Make this configurable
@@ -29,7 +36,7 @@ class ResourcePack {
     public readonly path: string,
     public readonly manifest: ResourceManifest,
     private readonly packZip: Zip,
-    public readonly selectedSubpack?: string
+    public readonly selectedSubpack?: string,
     //private readonly zippedPack:
   ) {
     this.name = this.manifest.header.name;
@@ -39,6 +46,34 @@ class ResourcePack {
       typeof this.manifest.header.version === "string"
         ? this.manifest.header.version
         : this.manifest.header.version.join(".");
+  }
+
+  /**
+   * Recursively read resource pack folder
+   */
+  private readContents(relativePath: string): ContentEntry[] {
+    const contents: ContentEntry[] = [];
+
+    const directory = readdirSync(join(this.path, relativePath));
+    for (const file of directory) {
+      const filePath = join(this.path, relativePath, file);
+      const fileStats = statSync(filePath);
+
+      if (fileStats.isDirectory()) {
+        // Recursively call this function to read the subdirectory
+        const subItems = this.readContents(
+          relativePath.length === 0 ? file : relativePath + "/" + file,
+        );
+
+        contents.push(...subItems);
+      } else {
+        contents.push({
+          path: relativePath.length === 0 ? file : relativePath + "/" + file,
+        });
+      }
+    }
+
+    return contents;
   }
 
   /** Compress the resource pack folder into a zip file. */
@@ -57,7 +92,7 @@ class ResourcePack {
   /** Get the amount of chunks that need to be sent to the client for this pack. */
   public getChunkCount(): number {
     return Math.ceil(
-      this.compressedData.byteLength / ResourcePack.MAX_CHUNK_SIZE
+      this.compressedData.byteLength / ResourcePack.MAX_CHUNK_SIZE,
     );
   }
 
@@ -66,7 +101,7 @@ class ResourcePack {
     const start = ResourcePack.MAX_CHUNK_SIZE * index;
     const end = Math.min(
       start + ResourcePack.MAX_CHUNK_SIZE,
-      this.compressedData.byteLength
+      this.compressedData.byteLength,
     );
 
     return this.compressedData.subarray(start, end);
